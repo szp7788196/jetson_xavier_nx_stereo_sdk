@@ -9,12 +9,12 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include "monocular.h"
+#include "stereo.h"
 #include "serial.h"
 #include "cmd_parse.h"
 
 
-static const char encodingTable [64] = 
+static const char encodingTable [64] =
 {
     'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P',
     'Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f',
@@ -34,16 +34,16 @@ static int encode(char *buf, int size, const char *user, const char *pwd)
     while(*user || *pwd)
     {
         i = 0;
-        
+
         while(i < 3 && *user)
         {
             inbuf[i ++] = *(user ++);
         }
-        
+
         if(i < 3 && !sep)
         {
             inbuf[i ++] = ':'; ++sep;
-        
+
         }
         while(i < 3 && *pwd)
         {
@@ -59,12 +59,12 @@ static int encode(char *buf, int size, const char *user, const char *pwd)
         {
             *(out ++) = encodingTable[(inbuf [0] & 0xFC) >> 2];
         }
-        
+
         if(out - buf < size - 1)
         {
             *(out ++) = encodingTable[((inbuf [0] & 0x03) << 4) | ((inbuf [1] & 0xF0) >> 4)];
         }
-        
+
         if(out - buf < size - 1)
         {
             if(fill == 2)
@@ -75,7 +75,7 @@ static int encode(char *buf, int size, const char *user, const char *pwd)
             {
                 *(out ++) = encodingTable[((inbuf [1] & 0x0F) << 2) | ((inbuf [2] & 0xC0) >> 6)];
             }
-            
+
         }
 
         if(out - buf < size - 1)
@@ -97,7 +97,7 @@ static int encode(char *buf, int size, const char *user, const char *pwd)
     {
         *out = 0;
     }
-    
+
     return bytes;
 }
 
@@ -105,8 +105,8 @@ static int packHttpLogonNtripServerFrame(char *outbuf,struct CmdArgs *args)
 {
     int send_len = 0;
 
-    if(args->mount_point != NULL && 
-       args->user_name != NULL && 
+    if(args->mount_point != NULL &&
+       args->user_name != NULL &&
        args->password != NULL)
     {
         if(strstr(args->server, "vrs.ppprtk.tk") != NULL)
@@ -136,7 +136,7 @@ static int packHttpLogonNtripServerFrame(char *outbuf,struct CmdArgs *args)
             fprintf(stderr, "%s: Requested data too long\n",__func__);
             return 0;
         }
-        
+
         send_len += encode(outbuf + send_len, MAX_NET_BUF_LEN -send_len - 4, args->user_name, args->password);
         if(send_len > MAX_NET_BUF_LEN - 4)
         {
@@ -276,8 +276,8 @@ static int recvNtripDataAndSendToNtripMsg(void)
             }
         }
     }
-    else if(revc_len == -1 || 
-            revc_len == EBADF || 
+    else if(revc_len == -1 ||
+            revc_len == EBADF ||
             revc_len == ENOTSOCK)
     {
         recv_null_cnt = 0;
@@ -331,7 +331,7 @@ void *thread_net(void *arg)
     long temp_v = 0;
 
     while(1)
-    {   
+    {
         switch((unsigned char)connectState)
         {
             case (unsigned char)UNKNOW_STATE:

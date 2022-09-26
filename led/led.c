@@ -50,7 +50,7 @@ void *thread_led(void *arg)
 			led_run_state = ~led_run_state;
 		}
 
-        if(connectState == CONNECTED)
+        if(connectState == CONNECTED || connectState == LOGGED_IN)
         {
             if(cnt % 150 == 0)
             {

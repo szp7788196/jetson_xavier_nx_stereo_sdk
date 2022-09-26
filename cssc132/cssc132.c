@@ -5,13 +5,14 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <sys/types.h>    
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/select.h>
 #include <sys/mman.h>
 #include <linux/videodev2.h>
-#include "monocular.h"
+#include <semaphore.h>
+#include "stereo.h"
 #include "cmd_parse.h"
 
 
@@ -25,26 +26,75 @@ static void initCssc132Config(struct Cssc132Config *config,struct CmdArgs *args)
 
     memset(config,0,sizeof(struct Cssc132Config));
 
-    config->camera_index                                = args->camera_index;
-    config->frame_num                                   = args->frame_num;
-    config->image_heap_depth                            = args->image_heap_depth;
-    config->trigger_frame_rate                          = 30.0f;
-    config->capture_timeout                             = args->capture_timeout;
+    config->camera_index        = args->camera_index;
+    config->frame_num           = args->frame_num;
+    config->image_heap_depth    = args->image_heap_depth;
+    config->trigger_frame_rate  = 30.0f;
+    config->capture_timeout     = args->capture_timeout;
 
-    config->camera = (char *)malloc(32);
-    memset(config->camera,0,32);
-    snprintf(config->camera,31,"/dev/video%d",config->camera_index);
+    if(config->camera_index == 0)
+    {
+        if(args->camera1 != NULL)
+        {
+            config->camera = (char *)malloc(strlen(args->camera1) + 1);
+            memset(config->camera,0,strlen(args->camera1) + 1);
+            memcpy(config->camera,args->camera1,strlen(args->camera1));
+        }
+        else
+        {
+            config->camera = (char *)malloc(strlen("/dev/video0") + 1);
+            memset(config->camera,0,strlen("/dev/video0") + 1);
+            memcpy(config->camera,"/dev/video0",strlen("/dev/video0"));
+        }
 
-    config->ctrl = (char *)malloc(32);
-    memset(config->ctrl,0,32);
-    snprintf(config->ctrl,31,"/dev/cssc132_ctrl_%d",config->camera_index);
+        if(args->camera1_ctrl != NULL)
+        {
+            config->ctrl = (char *)malloc(strlen(args->camera1_ctrl) + 1);
+            memset(config->ctrl,0,strlen(args->camera1_ctrl) + 1);
+            memcpy(config->ctrl,args->camera1_ctrl,strlen(args->camera1_ctrl));
+        }
+        else
+        {
+            config->ctrl = (char *)malloc(strlen("/dev/cssc132_ctrl_0") + 1);
+            memset(config->ctrl,0,strlen("/dev/cssc132_ctrl_0") + 1);
+            memcpy(config->ctrl,"/dev/cssc132_ctrl_0",strlen("/dev/cssc132_ctrl_0"));
+        }
+    }
+    else if(config->camera_index == 1)
+    {
+        if(args->camera2 != NULL)
+        {
+            config->camera = (char *)malloc(strlen(args->camera2) + 1);
+            memset(config->camera,0,strlen(args->camera2) + 1);
+            memcpy(config->camera,args->camera2,strlen(args->camera2));
+        }
+        else
+        {
+            config->camera = (char *)malloc(strlen("/dev/video1") + 1);
+            memset(config->camera,0,strlen("/dev/video1") + 1);
+            memcpy(config->camera,"/dev/video1",strlen("/dev/video1"));
+        }
+
+        if(args->camera2_ctrl != NULL)
+        {
+            config->ctrl = (char *)malloc(strlen(args->camera2_ctrl) + 1);
+            memset(config->ctrl,0,strlen(args->camera2_ctrl) + 1);
+            memcpy(config->ctrl,args->camera2_ctrl,strlen(args->camera2_ctrl));
+        }
+        else
+        {
+            config->ctrl = (char *)malloc(strlen("/dev/cssc132_ctrl_1") + 1);
+            memset(config->ctrl,0,strlen("/dev/cssc132_ctrl_1") + 1);
+            memcpy(config->ctrl,"/dev/cssc132_ctrl_1",strlen("/dev/cssc132_ctrl_1"));
+        }
+    }
 }
 
 static void printCssc132Config(struct Cssc132Config config)
 {
     unsigned char i = 0;
 
-    printf("|====================== Cssc132Config begin =======================\n");
+    printf("|====================== Cssc132Config[%d] begin =======================\n",config.camera_index);
     printf("| camera                                      = %s\n",config.camera);
     printf("| ctrl                                        = %s\n",config.ctrl);
     printf("| camera_index                                = %d\n",config.camera_index);
@@ -76,7 +126,7 @@ static void printCssc132Config(struct Cssc132Config config)
     printf("| exposure_state.dgain                        = %f\n",(float)config.exposure_state.dgain.inter + (float)config.exposure_state.dgain.dec / 10.0f);
     printf("| wb_sate.rgain                               = %d\n",config.wb_sate.rgain);
     printf("| wb_sate.ggain                               = %d\n",config.wb_sate.ggain);
-    printf("| config.wb_sate.bgain                        = %d\n",config.wb_sate.bgain);
+    printf("| config.wb_sate.bgain                       = %d\n",config.wb_sate.bgain);
     printf("| wb_sate.color_temp                          = %d\n",config.wb_sate.color_temp);
     printf("| exposure_frame_mode                         = %d\n",config.exposure_frame_mode);
     printf("| slow_shutter_gain                           = %f\n",(float)config.slow_shutter_gain.inter + (float)config.slow_shutter_gain.dec / 10.0f);
@@ -107,22 +157,22 @@ static void printCssc132Config(struct Cssc132Config config)
     printf("| image_heap_depth                            = %d\n",config.image_heap_depth);
     printf("| trigger_frame_rate                          = %f\n",config.trigger_frame_rate);
     printf("| capture_timeout                             = %d\n",config.capture_timeout);
-    printf("|======================= Cssc132Config end ========================\n");
+    printf("|======================= Cssc132Config[%d] end ========================\n",config.camera_index);
 }
 
 static int connectCamrea(struct Cssc132Config *config)
 {
     config->camera_fd = open(config->camera, O_RDWR | O_NONBLOCK, 0);
-    if(0 > config->camera_fd) 
+    if(0 > config->camera_fd)
     {
-        fprintf(stderr, "%s: open %s failed\n",__func__,config->camera);
+        fprintf(stderr, "%s: camera[%d] open %s failed\n",__func__,config->camera_index,config->camera);
 		return -ENODEV;
 	}
 
     config->ctrl_fd = open(config->ctrl, O_RDWR | O_NONBLOCK, 0);
-    if(0 > config->ctrl_fd) 
+    if(0 > config->ctrl_fd)
     {
-        fprintf(stderr, "%s: open %s failed\n",__func__,config->ctrl);
+        fprintf(stderr, "%s: camera[%d] open %s failed\n",__func__,config->camera_index,config->ctrl);
 		return -ENODEV;
 	}
 
@@ -133,15 +183,35 @@ static int disconnectCamera(struct Cssc132Config *config)
 {
     int ret = 0;
     int i = 0;
+    enum v4l2_buf_type type;
+    struct v4l2_control v4l2_args;
 
-    if(config->frame_buf != NULL)
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if(config->stream_mode != 0)
+    {
+        v4l2_args.id = TEGRA_CAMERA_CID_VI_TIME_OUT_DISABLE;
+        v4l2_args.value = 0;
+
+        if(ioctl(config->camera_fd, VIDIOC_S_CTRL, &v4l2_args) != 0)
+        {
+            fprintf(stderr, "%s: camera[%d] set vi timeout enable failed\n",__func__,config->camera_index);
+        }
+    }
+
+    if(ioctl(config->camera_fd, VIDIOC_STREAMOFF, &type) == -1)
+    {
+        fprintf(stderr, "%s: camera[%d] v4l2 VIDIOC_STREAMOFF failed\n",__func__,config->camera_index);
+    }
+
+/*     if(config->frame_buf != NULL)
     {
         for(i = 0; i < config->frame_num; i ++)
         {
             ret = munmap(config->frame_buf[i].start, config->frame_buf[i].length);
             if(ret == -1)
             {
-                fprintf(stderr, "%s: munmap config->frame_buf[%d] failed\n",__func__,i);
+                fprintf(stderr, "%s: camera[%d] munmap config->frame_buf[%d] failed\n",__func__,,config->camera_index,i);
             }
         }
 
@@ -149,8 +219,8 @@ static int disconnectCamera(struct Cssc132Config *config)
     }
 
     close(config->camera_fd);
-    close(config->ctrl_fd);
-    
+    close(config->ctrl_fd); */
+
     return ret;
 }
 
@@ -160,15 +230,15 @@ static int v4l2QueryCameraInfo(struct Cssc132Config config)
     struct v4l2_fmtdesc fmtdesc;
     struct v4l2_format fmt;
 
-    fmtdesc.index = 0;  
+    fmtdesc.index = 0;
     fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
-    printf("|===================== v4l2 camera info start =====================\n");
+    printf("|===================== v4l2 camera[%d] info start =====================\n",config.camera_index);
 
     /*获取驱动信息*/
     ioctl(config.camera_fd, VIDIOC_QUERYCAP, &cap);
-    
+
     if(!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE))
     {
         fprintf(stderr, "%s is no video capture device\n",config.camera);
@@ -178,31 +248,31 @@ static int v4l2QueryCameraInfo(struct Cssc132Config config)
     fprintf(stdout, "| Driver info:\n| \tDriver Name:%s\n| \tCard Name:%s\n| \tBus info:%s\n",cap.driver,cap.card,cap.bus_info);
 
     /*获取支持的格式*/
-    fprintf(stdout, "| Support format:\n");  
-    while(ioctl(config.camera_fd,VIDIOC_ENUM_FMT,&fmtdesc) != -1)  
-    {  
-        fprintf(stdout, "| \t%d.%s\n",fmtdesc.index + 1,fmtdesc.description);  
-        fmtdesc.index ++;  
+    fprintf(stdout, "| Support format:\n");
+    while(ioctl(config.camera_fd,VIDIOC_ENUM_FMT,&fmtdesc) != -1)
+    {
+        fprintf(stdout, "| \t%d.%s\n",fmtdesc.index + 1,fmtdesc.description);
+        fmtdesc.index ++;
     }
 
     /*获取当前帧格式*/
-	ioctl(config.camera_fd,VIDIOC_G_FMT,&fmt);  
-	fprintf(stdout, "| Current format info:\n| \twidth:%d\n| \theight:%d\n",fmt.fmt.pix.width,fmt.fmt.pix.height);  
- 
-    fmtdesc.index = 0;  
+	ioctl(config.camera_fd,VIDIOC_G_FMT,&fmt);
+	fprintf(stdout, "| Current format info:\n| \twidth:%d\n| \theight:%d\n",fmt.fmt.pix.width,fmt.fmt.pix.height);
+
+    fmtdesc.index = 0;
 	while(ioctl(config.camera_fd,VIDIOC_ENUM_FMT,&fmtdesc) != -1)
-	{  
+	{
 		if(fmtdesc.pixelformat)
-		{  
+		{
 			fprintf(stdout, "| \tformat:%s\n",fmtdesc.description);
 
-			break;  
+			break;
 		}
 
-		fmtdesc.index ++;  
+		fmtdesc.index ++;
 	}
 
-    printf("|====================== v4l2 camera info end ======================\n");
+    printf("|====================== v4l2 camera[%d] info end ======================\n",config.camera_index);
 
     return 0;
 }
@@ -224,17 +294,17 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_DEVICE_ID,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read device_id failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read device_id failed\n",__func__,config->camera_index);
     }
     else
     {
         config->device_id = temp_u8;
     }
-    
+
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_HARDWARE_VER,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read hardware_ver failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read hardware_ver failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -244,7 +314,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_FIRMWARE_VER,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read firmware_ver failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read firmware_ver failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -254,7 +324,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_CAM_CAP,&temp_u16);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read firmware_ver failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read firmware_ver failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -264,7 +334,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_PRODUCT_MODULE,&temp_u16);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read product_module failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read product_module failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -274,7 +344,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_SUPPORT_FORMAT,&support_format);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read support_format failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read support_format failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -284,7 +354,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_CURRENT_FORMAT,&format);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read current_format failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read current_format failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -294,7 +364,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_CURRENT_FORMAT,&temp_u32);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read isp_capability failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read isp_capability failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -304,7 +374,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_POWER_HZ,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read power_hz failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read power_hz failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -314,7 +384,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_I2C_ADDR,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read i2c_addr failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read i2c_addr failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -324,7 +394,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_STREAM_MODE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read stream_mode failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read stream_mode failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -334,7 +404,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_DAY_NIGHT_MODE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read day_night_mode failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read day_night_mode failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -344,7 +414,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_HUE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read hue failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read hue failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -354,7 +424,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_CONTRAST,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read contrast failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read contrast failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -364,7 +434,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_STATURATION,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read saturation failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read saturation failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -374,7 +444,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_EXPOSURE_STATE,&exposure_state);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read exposure_state failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read exposure_state failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -384,7 +454,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_WB_STATE,&wb_state);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read wb_sate failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read wb_sate failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -394,7 +464,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_EXPOSURE_FRAME_MODE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read exposure_frame_mode failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read exposure_frame_mode failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -404,7 +474,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_SLOW_SHUTTER_GAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read slow_shutter_gain failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read slow_shutter_gain failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -414,7 +484,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_EXPOSURE_MODE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read exposure_mode failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read exposure_mode failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -424,7 +494,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_MANUAL_EXPOSURE_TIME,&temp_u32);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read manual_exposure_time failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read manual_exposure_time failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -434,7 +504,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_MANUAL_EXPOSURE_AGAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read manual_exposure_again failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read manual_exposure_again failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -444,7 +514,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_MANUAL_EXPOSURE_DGAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read manual_exposure_dgain failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read manual_exposure_dgain failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -454,7 +524,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_DIRECT_MANUAL_EXPOSURE_TIME,&temp_u32);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read direct_manual_exposure_time failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read direct_manual_exposure_time failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -464,7 +534,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_DIRECT_MANUAL_EXPOSURE_AGAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read direct_manual_exposure_again failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read direct_manual_exposure_again failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -474,7 +544,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_DIRECT_MANUAL_EXPOSURE_DGAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read direct_manual_exposure_dgain failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read direct_manual_exposure_dgain failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -484,7 +554,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_AWB_MODE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read awb_mode failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read awb_mode failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -494,7 +564,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_MWB_COLOR_TEMPERATURE,&temp_u32);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read mwb_color_temperature failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read mwb_color_temperature failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -504,7 +574,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_MWB_GAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read mwb_gain failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read mwb_gain failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -514,7 +584,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_IMAGE_DIRECTION,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read image_direction failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read image_direction failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -524,7 +594,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_EXPOSURE_TARGET_BRIGHTNESS,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read auto_exposure_target_brightness failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read auto_exposure_target_brightness failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -534,7 +604,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_AUTO_EXPOSURE_MAX_TIME,&temp_u32);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read auto_exposure_max_time failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read auto_exposure_max_time failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -544,7 +614,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_AUTO_EXPOSURE_MAX_GAIN,&gain);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read auto_exposure_max_gain failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read auto_exposure_max_gain failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -554,7 +624,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_HARDWARE_TRIGGER_EDGE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read hardware_trigger_edge failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read hardware_trigger_edge failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -564,7 +634,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_HARDWARE_TRIGGER_DELETE_BOUNCER_TIME,&hd_trig_del_bou_time);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read hardware_trigger_delete_bouncer_time failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read hardware_trigger_delete_bouncer_time failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -574,7 +644,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_HARDWARE_TRIGGER_DELAY,&temp_u32);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read hardware_trigger_delay failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read hardware_trigger_delay failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -584,7 +654,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_PICK_MODE,&temp_u8);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read pick_one_mode failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read pick_one_mode failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -594,7 +664,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     ret = ioctl(config->ctrl_fd,IOC_CSSC132_CTRL_R_MIPI_STATUS,&mipi_status);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl read mipi_status failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl read mipi_status failed\n",__func__,config->camera_index);
     }
     else
     {
@@ -602,7 +672,7 @@ static void queryCssc132Config(struct Cssc132Config *config)
     }
 }
 
-static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_config,struct Cssc132Config *config)
+static int loadCssc132UserConfig(struct Cssc132Config *def_config,struct Cssc132Config *user_config,char *filename)
 {
     int have_diff = -1;
     FILE *fp;
@@ -619,7 +689,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     fp = fopen(filename, "rt");
     if(fp == NULL)
     {
-        fprintf(stderr, "%s: Could not open camera user parameters file\n",__func__);
+        fprintf(stderr, "%s: Could not open camera[%d] user parameters file\n",__func__,def_config->camera_index);
 		return -ENOENT;
     }
 
@@ -628,20 +698,20 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     file_len = ftell(fp);
     if(file_len < 1)
     {
-        fprintf(stderr, "%s: query camera user parameters file length failed\n",__func__);
+        fprintf(stderr, "%s: query camera[%d] user parameters file length failed\n",__func__,def_config->camera_index);
 		return -EAGAIN;
     }
 
     if(file_len > CSSC132_MAX_USER_CONFIG_FILE_LEN || file_len < CSSC132_MIN_USER_CONFIG_FILE_LEN)
     {
-        fprintf(stderr, "%s: camera user parameters file length error\n",__func__);
+        fprintf(stderr, "%s: camera[%d] user parameters file length error\n",__func__,def_config->camera_index);
 		return -EFBIG;
     }
 
     file_buf = (char *)malloc(sizeof(char) * (file_len + 1));
     if(file_buf == NULL)
     {
-        fprintf(stderr, "%s: alloc user parameters file buf failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] alloc user parameters file buf failed\n",__func__,def_config->camera_index);
 		return -EPERM;
     }
 
@@ -658,11 +728,11 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
 
     if(strstr(file_buf, "start:") == NULL && strstr(file_buf, "end;") == NULL)
     {
-        fprintf(stderr, "%s: camera user parameters file missing head or tail\n",__func__);
+        fprintf(stderr, "%s: camera[%d] user parameters file missing head or tail\n",__func__,def_config->camera_index);
 		return -EINVAL;
     }
 
-    memcpy(user_config,config,sizeof(struct Cssc132Config));
+    memcpy(user_config,def_config,sizeof(struct Cssc132Config));
 
     msg = file_buf;
     pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"format_width", file_len, strlen("format_width"));
@@ -744,84 +814,84 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
         }
     }
 
-    if(user_config->current_format.width == 1280 && 
-        user_config->current_format.height == 1080 && 
-        user_config->current_format.frame_rate <=  45 && 
+    if(user_config->current_format.width == 1280 &&
+        user_config->current_format.height == 1080 &&
+        user_config->current_format.frame_rate <=  45 &&
         user_config->current_format.frame_rate >= 2)
     {
         if(user_config->trigger_frame_rate > 45.0f)
         {
-            fprintf(stderr, "%s: trigger_frame_rate = %f is too large,fixed to 45fps\n",
-                    __func__,user_config->trigger_frame_rate);
+            fprintf(stderr, "%s: camera[%d] trigger_frame_rate = %f is too large,fixed to 45fps\n",
+                    __func__,def_config->camera_index,user_config->trigger_frame_rate);
             user_config->trigger_frame_rate = 45.0f;
         }
     }
-    else if(user_config->current_format.width == 1280 && 
-            user_config->current_format.height == 720  && 
-            user_config->current_format.frame_rate <=  60 && 
+    else if(user_config->current_format.width == 1280 &&
+            user_config->current_format.height == 720  &&
+            user_config->current_format.frame_rate <=  60 &&
             user_config->current_format.frame_rate >= 2)
     {
         if(user_config->trigger_frame_rate > 60.0f)
         {
-            fprintf(stderr, "%s: trigger_frame_rate = %f is too large,fixed to 60fps\n",
-                    __func__,user_config->trigger_frame_rate);
+            fprintf(stderr, "%s: camera[%d] trigger_frame_rate = %f is too large,fixed to 60fps\n",
+                    __func__,def_config->camera_index,user_config->trigger_frame_rate);
             user_config->trigger_frame_rate = 60.0f;
         }
     }
-    else if(user_config->current_format.width == 640  && 
-            user_config->current_format.height == 480  && 
-            user_config->current_format.frame_rate <= 120 && 
+    else if(user_config->current_format.width == 640  &&
+            user_config->current_format.height == 480  &&
+            user_config->current_format.frame_rate <= 120 &&
             user_config->current_format.frame_rate >= 2)
     {
         if(user_config->trigger_frame_rate > 120.0f)
         {
-            fprintf(stderr, "%s: trigger_frame_rate = %f is too large,fixed to 120fps\n",
-                    __func__,user_config->trigger_frame_rate);
+            fprintf(stderr, "%s: camera[%d] trigger_frame_rate = %f is too large,fixed to 120fps\n",
+                    __func__,def_config->camera_index,user_config->trigger_frame_rate);
             user_config->trigger_frame_rate = 120.0f;
         }
     }
-    else if(user_config->current_format.width == 1080 && 
-            user_config->current_format.height == 1208 && 
-            user_config->current_format.frame_rate <=  45 && 
+    else if(user_config->current_format.width == 1080 &&
+            user_config->current_format.height == 1208 &&
+            user_config->current_format.frame_rate <=  45 &&
             user_config->current_format.frame_rate >= 2)
     {
         if(user_config->trigger_frame_rate > 45.0f)
         {
-            fprintf(stderr, "%s: trigger_frame_rate = %f is too large,fixed to 45fps\n",
-                    __func__,user_config->trigger_frame_rate);
+            fprintf(stderr, "%s: camera[%d] trigger_frame_rate = %f is too large,fixed to 45fps\n",
+                    __func__,def_config->camera_index,user_config->trigger_frame_rate);
             user_config->trigger_frame_rate = 45.0f;
         }
     }
-    else if(user_config->current_format.width == 720  && 
-            user_config->current_format.height == 1280 && 
-            user_config->current_format.frame_rate <=  60 && 
+    else if(user_config->current_format.width == 720  &&
+            user_config->current_format.height == 1280 &&
+            user_config->current_format.frame_rate <=  60 &&
             user_config->current_format.frame_rate >= 2)
     {
         if(user_config->trigger_frame_rate > 60.0f)
         {
-            fprintf(stderr, "%s: trigger_frame_rate = %f is too large,fixed to 60fps\n",
-                    __func__,user_config->trigger_frame_rate);
+            fprintf(stderr, "%s: camera[%d] trigger_frame_rate = %f is too large,fixed to 60fps\n",
+                    __func__,def_config->camera_index,user_config->trigger_frame_rate);
             user_config->trigger_frame_rate = 60.0f;
         }
     }
-    else if(user_config->current_format.width == 480  && 
-            user_config->current_format.height == 640  && 
-            user_config->current_format.frame_rate <= 120 && 
+    else if(user_config->current_format.width == 480  &&
+            user_config->current_format.height == 640  &&
+            user_config->current_format.frame_rate <= 120 &&
             user_config->current_format.frame_rate >= 2)
     {
         if(user_config->trigger_frame_rate > 120.0f)
         {
-            fprintf(stderr, "%s: trigger_frame_rate = %f is too large,fixed to 120fps\n",
-                    __func__,user_config->trigger_frame_rate);
+            fprintf(stderr, "%s: camera[%d]trigger_frame_rate = %f is too large,fixed to 120fps\n",
+                    __func__,def_config->camera_index,user_config->trigger_frame_rate);
             user_config->trigger_frame_rate = 120.0f;
         }
     }
     else
     {
-        fprintf(stderr, "%s: user conf format_width = %d,format_height = %d,frame_rate = %d,trigger_frame_rate = %f,"
+        fprintf(stderr, "%s: camera[%d]user conf format_width = %d,format_height = %d,frame_rate = %d,trigger_frame_rate = %f,"
                 "do not match cssc132 sensor,"
                 "fixed to 1280 720 60 60\n",
-                __func__,user_config->current_format.width,user_config->current_format.height,
+                __func__,def_config->camera_index,user_config->current_format.width,user_config->current_format.height,
                 user_config->current_format.frame_rate,user_config->trigger_frame_rate);
 
         user_config->current_format.width = 1280;
@@ -830,7 +900,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
         user_config->trigger_frame_rate = 60;
     }
 
-    config->trigger_frame_rate = user_config->trigger_frame_rate;
+    def_config->trigger_frame_rate = user_config->trigger_frame_rate;
 
     msg = file_buf;
     pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"power_hz", file_len, strlen("power_hz"));
@@ -953,7 +1023,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"exposure_frame_mode", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"exposure_frame_mode",
                    file_len, strlen("exposure_frame_mode"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1013,7 +1083,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"manual_exposure_time", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"manual_exposure_time",
                    file_len, strlen("manual_exposure_time"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1034,7 +1104,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"manual_exposure_again", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"manual_exposure_again",
                    file_len, strlen("manual_exposure_again"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1054,7 +1124,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"manual_exposure_dgain", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"manual_exposure_dgain",
                    file_len, strlen("manual_exposure_dgain"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1074,7 +1144,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"direct_manual_exposure_time", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"direct_manual_exposure_time",
                    file_len, strlen("direct_manual_exposure_time"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1095,7 +1165,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"direct_manual_exposure_again", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"direct_manual_exposure_again",
                    file_len, strlen("direct_manual_exposure_again"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1115,7 +1185,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"direct_manual_exposure_dgain", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"direct_manual_exposure_dgain",
                    file_len, strlen("direct_manual_exposure_dgain"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1155,7 +1225,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"mwb_color_temperature", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"mwb_color_temperature",
                    file_len, strlen("mwb_color_temperature"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1189,8 +1259,8 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
             temp_f = atof(temp_buf);
             if(temp_f >= 0.0f && temp_f <= 15.9375f)
             {
-                user_config->mwb_gain.inter = ((((unsigned char)temp_f) << 4) & 0xF0) + 
-                                              (unsigned char)((temp_f - (unsigned char)temp_f) * 16.0f);
+                user_config->mwb_gain.inter = ((((unsigned char)temp_f) << 4) & 0xF0) +
+                                                   (unsigned char)((temp_f - (unsigned char)temp_f) * 16.0f);
                 have_diff = 1;
             }
         }
@@ -1210,8 +1280,8 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
             temp_f = atof(temp_buf);
             if(temp_f >= 0.0f && temp_f <= 15.9375f)
             {
-                user_config->mwb_gain.dec = ((((unsigned char)temp_f) << 4) & 0xF0) + 
-                                            (unsigned char)((temp_f - (unsigned char)temp_f) * 16.0f);
+                user_config->mwb_gain.dec = ((((unsigned char)temp_f) << 4) & 0xF0) +
+                                                 (unsigned char)((temp_f - (unsigned char)temp_f) * 16.0f);
                 have_diff = 1;
             }
         }
@@ -1238,7 +1308,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"auto_exposure_target_brightness", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"auto_exposure_target_brightness",
                    file_len, strlen("auto_exposure_target_brightness"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1259,7 +1329,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"auto_exposure_max_time", file_len, 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"auto_exposure_max_time", file_len,
                    strlen("auto_exposure_max_time"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1274,7 +1344,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
 
             if(user_config->exposure_frame_mode == 1)
             {
-                if(temp >= 100 && temp <= (unsigned int)(1000000 / user_config->current_format.frame_rate))
+                if(temp >= 100 && temp <= (unsigned int)(1000000 / user_config->trigger_frame_rate))
                 {
                     user_config->auto_exposure_max_time = temp;
                     have_diff = 1;
@@ -1292,7 +1362,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"auto_exposure_max_gain", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"auto_exposure_max_gain",
                    file_len, strlen("auto_exposure_max_gain"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1312,7 +1382,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_edge", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_edge",
                    file_len, strlen("hardware_trigger_edge"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1333,7 +1403,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_delete_bouncer_time_enable", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_delete_bouncer_time_enable",
                    file_len, strlen("hardware_trigger_delete_bouncer_time_enable"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1354,7 +1424,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_delete_bouncer_time", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_delete_bouncer_time",
                    file_len, strlen("hardware_trigger_delete_bouncer_time"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1375,7 +1445,7 @@ static int loadCssc132UserConfig(char *filename,struct Cssc132Config *user_confi
     }
 
     msg = file_buf;
-    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_delay", 
+    pos = mystrstr((unsigned char *)file_buf, (unsigned char *)"hardware_trigger_delay",
                    file_len, strlen("hardware_trigger_delay"));
     if(pos != 0xFFFF && pos < file_len)
     {
@@ -1462,14 +1532,14 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
 {
     int ret = 0;
 
-    if(user_config.current_format.width != config.current_format.width || 
-       user_config.current_format.height != config.current_format.height || 
+    if(user_config.current_format.width != config.current_format.width ||
+       user_config.current_format.height != config.current_format.height ||
        user_config.current_format.frame_rate != config.current_format.frame_rate)
     {
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_CURRENT_FORMAT,&user_config.current_format);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write current_format failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write current_format failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1478,7 +1548,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_POWER_HZ,&user_config.power_hz);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write power_hz failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write power_hz failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1487,7 +1557,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_STREAM_MODE,&user_config.stream_mode);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write stream_mode failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write stream_mode failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1496,7 +1566,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_DAY_NIGHT_MODE,&user_config.day_night_mode);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write day_night_mode failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write day_night_mode failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1505,7 +1575,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_HUE,&user_config.hue);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write hue failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write hue failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1514,7 +1584,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_CONTRAST,&user_config.contrast);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write contrast failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write contrast failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1523,7 +1593,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_STATURATION,&user_config.saturation);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write saturation failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write saturation failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1532,7 +1602,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_EXPOSURE_FRAME_MODE,&user_config.exposure_frame_mode);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write exposure_frame_mode failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write exposure_frame_mode failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1542,7 +1612,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_SLOW_SHUTTER_GAIN,&user_config.slow_shutter_gain);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write slow_shutter_gain failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write slow_shutter_gain failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1551,7 +1621,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_EXPOSURE_MODE,&user_config.exposure_mode);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write exposure_mode failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write exposure_mode failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1560,7 +1630,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_MANUAL_EXPOSURE_TIME,&user_config.manual_exposure_time);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write manual_exposure_time failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write manual_exposure_time failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1570,7 +1640,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_MANUAL_EXPOSURE_AGAIN,&user_config.manual_exposure_again);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write manual_exposure_again failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write manual_exposure_again failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1580,7 +1650,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_MANUAL_EXPOSURE_DGAIN,&user_config.manual_exposure_dgain);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write manual_exposure_dgain failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write manual_exposure_dgain failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1590,7 +1660,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
                     &user_config.direct_manual_exposure_time);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write direct_manual_exposure_time failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write direct_manual_exposure_time failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1601,7 +1671,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
                     &user_config.direct_manual_exposure_again);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write direct_manual_exposure_again failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write direct_manual_exposure_again failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1612,7 +1682,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
                     &user_config.direct_manual_exposure_dgain);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write direct_manual_exposure_dgain failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write direct_manual_exposure_dgain failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1621,7 +1691,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_AWB_MODE,&user_config.awb_mode);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write awb_mode failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write awb_mode failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1630,7 +1700,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_MWB_COLOR_TEMPERATURE,&user_config.mwb_color_temperature);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write mwb_color_temperature failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write mwb_color_temperature failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1640,7 +1710,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_MWB_GAIN,&user_config.mwb_gain);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write mwb_gain failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write mwb_gain failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1649,7 +1719,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_IMAGE_DIRECTION,&user_config.image_direction);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write image_direction failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write image_direction failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1659,7 +1729,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
                     &user_config.auto_exposure_target_brightness);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write auto_exposure_target_brightness failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write auto_exposure_target_brightness failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1668,7 +1738,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_AUTO_EXPOSURE_MAX_TIME,&user_config.auto_exposure_max_time);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write auto_exposure_max_time failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write auto_exposure_max_time failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1678,7 +1748,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_AUTO_EXPOSURE_MAX_GAIN,&user_config.auto_exposure_max_gain);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write auto_exposure_max_gain failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write auto_exposure_max_gain failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1687,7 +1757,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_HARDWARE_TRIGGER_EDGE,&user_config.hardware_trigger_edge);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write hardware_trigger_edge failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write hardware_trigger_edge failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1698,7 +1768,8 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
                     &user_config.hardware_trigger_delete_bouncer_time);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write hardware_trigger_delete_bouncer_time failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write hardware_trigger_delete_bouncer_time failed\n",
+                    __func__,config.camera_index);
         }
     }
 
@@ -1707,7 +1778,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_HARDWARE_TRIGGER_DELAY,&user_config.hardware_trigger_delay);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write hardware_trigger_delay failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write hardware_trigger_delay failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1716,7 +1787,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_PICK_MODE,&user_config.pick_one_mode);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write pick_one_mode failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write pick_one_mode failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1725,7 +1796,7 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_LED_STROBE_ENABLE,&user_config.led_strobe_enable);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write led_strobe_enable failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write led_strobe_enable failed\n",__func__,config.camera_index);
         }
     }
 
@@ -1734,14 +1805,14 @@ static int setCssc132UserConfig(struct Cssc132Config config,struct Cssc132Config
         ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_YUV_SEQUENCE,&user_config.yuv_sequence);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: ioctl write yuv_sequence failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] ioctl write yuv_sequence failed\n",__func__,config.camera_index);
         }
     }
 
     ret = ioctl(config.ctrl_fd,IOC_CSSC132_CTRL_W_PARAMS_SAVE,NULL);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: ioctl write save all parameters failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl write save all parameters failed\n",__func__,config.camera_index);
     }
 
     return ret;
@@ -1758,7 +1829,7 @@ static int reallocateCameraBuffer(struct Cssc132Config *config)
     memset(&req,0,sizeof(struct v4l2_requestbuffers));
 
     fmt.type                    = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.width           = config->current_format.width; 
+	fmt.fmt.pix.width           = config->current_format.width;
 	fmt.fmt.pix.height          = config->current_format.height;
 	fmt.fmt.pix.pixelformat     = V4L2_PIX_FMT_UYVY;
 	fmt.fmt.pix.field           = V4L2_FIELD_INTERLACED;
@@ -1768,7 +1839,7 @@ static int reallocateCameraBuffer(struct Cssc132Config *config)
     ret = ioctl(config->camera_fd, VIDIOC_S_FMT, &fmt);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: set format failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] set format failed\n",__func__,config->camera_index);
         return ret;
     }
 
@@ -1779,20 +1850,20 @@ static int reallocateCameraBuffer(struct Cssc132Config *config)
     ret = ioctl(config->camera_fd, VIDIOC_REQBUFS, &req);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: does not support memory map\n",__func__);
+        fprintf(stderr, "%s: camera[%d] does not support memory map\n",__func__,config->camera_index);
         return ret;
     }
 
     if(req.count < 2)
     {
-        fprintf(stderr, "%s: insufficient buffer memory\n",__func__);
+        fprintf(stderr, "%s: camera[%d] insufficient buffer memory\n",__func__,config->camera_index);
         return -EPERM;
     }
 
     config->frame_buf = calloc(req.count, sizeof(struct FrameBuffer));
     if(config->frame_buf == NULL)
     {
-        fprintf(stderr, "%s: calloc config->frame_buf failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] calloc config->frame_buf failed\n",__func__,config->camera_index);
         return -EAGAIN;
     }
 
@@ -1809,7 +1880,7 @@ static int reallocateCameraBuffer(struct Cssc132Config *config)
         ret = ioctl(config->camera_fd, VIDIOC_QUERYBUF, &buf);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: calloc config->frame_buf.buf failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] calloc config->frame_buf.buf failed\n",__func__,config->camera_index);
             return -EAGAIN;
         }
 
@@ -1818,14 +1889,30 @@ static int reallocateCameraBuffer(struct Cssc132Config *config)
 								         buf.length,
 								         PROT_READ | PROT_WRITE,              //required
 								         MAP_SHARED,                          //recommended
-								         config->camera_fd, 
+								         config->camera_fd,
                                          buf.m.offset);
 
         if(config->frame_buf[i].start == MAP_FAILED)
 		{
-			fprintf(stderr, "%s: memory map frame buf failed\n",__func__);
+			fprintf(stderr, "%s: camera[%d] memory map frame buf failed\n",__func__,config->camera_index);
             return -EAGAIN;
 		}
+    }
+
+    if(imageBuffer[config->camera_index].image != NULL)
+    {
+        free(imageBuffer[config->camera_index].image);
+        imageBuffer[config->camera_index].image = NULL;
+    }
+
+    if(imageBuffer[config->camera_index].image == NULL)
+    {
+        imageBuffer[config->camera_index].image = (char *)malloc(sizeof(char) * fmt.fmt.pix.sizeimage);
+        if(imageBuffer[config->camera_index].image == NULL)
+        {
+            fprintf(stderr, "%s: camera[%d] malloc imageBuffer.image failed\n",__func__,config->camera_index);
+            return -EAGAIN;
+        }
     }
 
     freeImageHeap(config->camera_index);
@@ -1833,7 +1920,15 @@ static int reallocateCameraBuffer(struct Cssc132Config *config)
     ret = allocateImageHeap(config->camera_index,config->image_heap_depth,fmt.fmt.pix.sizeimage);
     if(ret != 0)
     {
-        fprintf(stderr, "%s: allocate image heap failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] allocate image heap failed\n",__func__,config->camera_index);
+    }
+
+    freeImageUnitHeap(config->camera_index);
+
+    ret = allocateImageUnitHeap(config->camera_index,config->image_heap_depth,fmt.fmt.pix.sizeimage);
+    if(ret != 0)
+    {
+        fprintf(stderr, "%s: camera[%d] allocate image unit heap failed\n",__func__,config->camera_index);
     }
 
     return ret;
@@ -1844,8 +1939,27 @@ static int startCaptureImage(struct Cssc132Config config)
     int ret = 0;
     int i = 0;
 	enum v4l2_buf_type type;
+    struct v4l2_control v4l2_args;
 
     type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if(config.stream_mode != 0)
+    {
+        v4l2_args.id = TEGRA_CAMERA_CID_LOW_LATENCY;
+        v4l2_args.value = 1;
+        if(ioctl(config.camera_fd, VIDIOC_S_CTRL, &v4l2_args) != 0)
+        {
+            fprintf(stderr, "%s: camera[%d] set low latency failed\n",__func__,config.camera_index);
+        }
+
+        v4l2_args.id = TEGRA_CAMERA_CID_VI_TIME_OUT_DISABLE;
+        v4l2_args.value = 1;
+
+        if(ioctl(config.camera_fd, VIDIOC_S_CTRL, &v4l2_args) != 0)
+        {
+            fprintf(stderr, "%s: camera[%d] set vi timeout disable failed\n",__func__,config.camera_index);
+        }
+    }
 
     for (i = 0; i < config.frame_num; i ++)
     {
@@ -1860,7 +1974,7 @@ static int startCaptureImage(struct Cssc132Config config)
         ret = ioctl(config.camera_fd,VIDIOC_QBUF,&buf);
         if(ret < 0)
         {
-            fprintf(stderr, "%s: VIDIOC_QBUF failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] VIDIOC_QBUF failed\n",__func__,config.camera_index);
             return -EPERM;
         }
     }
@@ -1868,42 +1982,48 @@ static int startCaptureImage(struct Cssc132Config config)
     ret = ioctl(config.camera_fd,VIDIOC_STREAMON,&type);
     if(ret < 0)
     {
-        fprintf(stderr, "%s: VIDIOC_STREAMON failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] VIDIOC_STREAMON failed\n",__func__,config.camera_index);
         return -EPERM;
     }
 
     return ret;
 }
 
-static void sendFrameRateMsgToThreadSync(struct Cssc132Config config)
+static int stopCaptureImage(struct Cssc132Config config)
 {
     int ret = 0;
-    double *frame_rate = NULL;
+    int i = 0;
+    enum v4l2_buf_type type;
+    struct v4l2_control v4l2_args;
 
-    if(config.stream_mode != 2)
+    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if(config.stream_mode != 0)
     {
-        return;
-    }
+        v4l2_args.id = TEGRA_CAMERA_CID_VI_TIME_OUT_DISABLE;
+        v4l2_args.value = 0;
 
-    frame_rate = (double *)malloc(sizeof(double));
-    if(frame_rate != NULL)
-    {
-        *frame_rate = config.trigger_frame_rate;
-
-        ret = xQueueSend((key_t)KEY_FRAME_RATE_MSG,frame_rate,MAX_QUEUE_MSG_NUM);
-        if(ret == -1)
+        if(ioctl(config.camera_fd, VIDIOC_S_CTRL, &v4l2_args) != 0)
         {
-            fprintf(stderr, "%s: send cssc132 frame rate queue msg failed\n",__func__);
+            fprintf(stderr, "%s: camera[%d] set vi timeout enable failed\n",__func__,config.camera_index);
         }
     }
+
+    if(ioctl(config.camera_fd, VIDIOC_STREAMOFF, &type) == -1)
+    {
+        fprintf(stderr, "%s: camera[%d] v4l2 VIDIOC_STREAMOFF failed\n",__func__,config.camera_index);
+    }
+
+    return ret;
 }
 
-static int captureImage(struct Cssc132Config config,struct ImageBuffer *image_buf)
+static int captureImage(struct Cssc132Config config,unsigned int *image_num)
 {
     int ret = 0;
     fd_set fds;
 	struct timeval tv;
     struct v4l2_buffer buf;
+    struct ImageBuffer image_buf;
 
     FD_ZERO(&fds);
 	FD_SET(config.camera_fd,&fds);
@@ -1914,13 +2034,13 @@ static int captureImage(struct Cssc132Config config,struct ImageBuffer *image_bu
     ret = select(config.camera_fd + 1,&fds,NULL,NULL,&tv);
     if(ret == -1)
     {
-        fprintf(stderr, "%s: select error\n",__func__);
+        fprintf(stderr, "%s: camera[%d] select error\n",__func__,config.camera_index);
         usleep(1000 * 10);
         return -EPERM;
     }
     else if(ret == 0)
     {
-        fprintf(stderr, "%s: select timeout\n",__func__);
+        fprintf(stderr, "%s: camera[%d] select timeout\n",__func__,config.camera_index);
         return -EAGAIN;
     }
 
@@ -1932,38 +2052,25 @@ static int captureImage(struct Cssc132Config config,struct ImageBuffer *image_bu
     ret = ioctl(config.camera_fd, VIDIOC_DQBUF, &buf);
     if(ret == -1)
     {
-        fprintf(stderr, "%s: ioctl VIDIOC_DQBUF failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl VIDIOC_DQBUF failed\n",__func__,config.camera_index);
         return -EPERM;
     }
 
-    pthread_mutex_lock(&mutexImageHeap[config.camera_index]); 
-    memcpy(image_buf->image,config.frame_buf[buf.index].start,config.frame_buf[buf.index].length);
+    image_buf.image     = config.frame_buf[buf.index].start;
+    image_buf.size      = config.frame_buf[buf.index].length;
+    image_buf.width     = config.current_format.width;
+    image_buf.height    = config.current_format.height;
+    image_buf.number    = (*image_num) ++;
 
-    image_buf->size = config.frame_buf[buf.index].length;
-    pthread_mutex_unlock(&mutexImageHeap[config.camera_index]);
+    // fprintf(stdout, "%s: camera[%d] image_buf->number ======================== %d\n",__func__,config.camera_index,image_buf.number);
+
+    imageHeapPut(config.camera_index,&image_buf);
 
     ret = ioctl(config.camera_fd, VIDIOC_QBUF, &buf);
     if(ret == -1)
     {
-        fprintf(stderr, "%s: ioctl VIDIOC_QBUF failed\n",__func__);
+        fprintf(stderr, "%s: camera[%d] ioctl VIDIOC_QBUF failed\n",__func__,config.camera_index);
     }
-
-    return ret;
-}
-
-static int recvResetMsg(unsigned char index)
-{
-    int ret = 0;
-    unsigned char *reset = NULL;
-
-    ret = xQueueReceive((key_t)KEY_CAMERA_RESET_MSG + index,(void **)&reset,0);
-    if(ret == -1)
-    {
-        return -1;
-    }
-
-    free(reset);
-    reset = NULL;
 
     return ret;
 }
@@ -1973,24 +2080,25 @@ void *thread_cssc132(void *arg)
     int ret = 0;
     struct CmdArgs *args = (struct CmdArgs *)arg;
     enum CameraState camera_state = INIT_CONFIG;
-    struct Cssc132Config cssc132_config;
-    struct Cssc132Config user_cssc132_config;
+    unsigned int image_num =  0;
+    struct Cssc132Config default_config;
+    struct Cssc132Config user_config;
 
     while(1)
     {
         switch((unsigned char)camera_state)
         {
             case (unsigned char)INIT_CONFIG:            //初始化配置
-                initCssc132Config(&cssc132_config,(struct CmdArgs *)arg);
+                initCssc132Config(&default_config,(struct CmdArgs *)arg);
                 camera_state = CONNECT_CAMERA;
             break;
 
             case (unsigned char)CONNECT_CAMERA:         //链接相机
-                ret = connectCamrea(&cssc132_config);
+                ret = connectCamrea(&default_config);
                 if(ret != 0)
                 {
-                    fprintf(stderr, "%s: connect camera failed\n",__func__);
-                    camera_state = DISCONNECT_CAMERA;
+                    fprintf(stderr, "%s: camera[%d] connect camera failed\n",__func__,default_config.camera_index);
+                    camera_state =  DISCONNECT_CAMERA;
                 }
                 else
                 {
@@ -1999,16 +2107,16 @@ void *thread_cssc132(void *arg)
             break;
 
             case (unsigned char)QUERY_CAMERA_CONFIG:    //获取相机配置
-                queryCssc132Config(&cssc132_config);
-                printCssc132Config(cssc132_config);
+                queryCssc132Config(&default_config);
+                printCssc132Config(default_config);
                 camera_state = LOAD_USER_CONFIG;
             break;
 
             case (unsigned char)LOAD_USER_CONFIG:       //加载用户配置
-                ret = loadCssc132UserConfig(args->mipi_cam_user_conf_file,&user_cssc132_config,&cssc132_config);
+                ret = loadCssc132UserConfig(&default_config,&user_config,args->mipi_cam_user_conf_file);
                 if(ret != 1)
                 {
-                    fprintf(stderr, "%s: load camera user config failed\n",__func__);
+                    fprintf(stderr, "%s: camera[%d] load camera user config failed\n",__func__,default_config.camera_index);
                     camera_state = ALLOC_FRAME_BUFFER;
                 }
                 else
@@ -2018,44 +2126,36 @@ void *thread_cssc132(void *arg)
             break;
 
             case (unsigned char)SET_USER_CONFIG:        //设置用户配置
-                setCssc132UserConfig(cssc132_config,user_cssc132_config);
+                setCssc132UserConfig(default_config,user_config);
 
                 sleep(1);
 
-                ret = v4l2QueryCameraInfo(cssc132_config);
-                if(ret != 0)
-                {
-                    fprintf(stderr, "%s: camera not support video capture\n",__func__);
-                    camera_state =  DISCONNECT_CAMERA;
-                }
-                else
-                {
-                    camera_state = ALLOC_FRAME_BUFFER;
-                }
-                queryCssc132Config(&cssc132_config);
-                printCssc132Config(cssc132_config);
+                camera_state = ALLOC_FRAME_BUFFER;
+
+                queryCssc132Config(&default_config);
+                printCssc132Config(default_config);
+
+                v4l2QueryCameraInfo(default_config);
             break;
 
             case (unsigned char)ALLOC_FRAME_BUFFER:     //申请帧缓存
-                ret = reallocateCameraBuffer(&cssc132_config);
+                ret = reallocateCameraBuffer(&default_config);
                 if(ret != 0)
                 {
-                    fprintf(stderr, "%s: alloc camera buffer failed\n",__func__);
+                    fprintf(stderr, "%s: camera[%d] alloc camera buffer failed\n",__func__,default_config.camera_index);
                     camera_state =  DISCONNECT_CAMERA;
                 }
                 else
                 {
-                    sendFrameRateMsgToThreadSync(cssc132_config);
-
                     camera_state = START_CAPTURE;
                 }
             break;
 
             case (unsigned char)START_CAPTURE:          //开始采集
-                ret = startCaptureImage(cssc132_config);
+                ret = startCaptureImage(default_config);
                 if(ret != 0)
                 {
-                    fprintf(stderr, "%s: start capture image failed\n",__func__);
+                    fprintf(stderr, "%s: camera[%d] start capture image failed\n",__func__,default_config.camera_index);
                     camera_state =  DISCONNECT_CAMERA;
                 }
                 else
@@ -2065,22 +2165,30 @@ void *thread_cssc132(void *arg)
             break;
 
             case (unsigned char)CAPTURE_IMAGE:          //采集图像
-                ret = captureImage(cssc132_config,imageHeap[cssc132_config.camera_index].heap[imageHeap[cssc132_config.camera_index].put_ptr]->image);
+                ret = captureImage(default_config,&image_num);
                 if(ret == 0)
                 {
+                    sem_post(&sem_t_ImageHeap[default_config.camera_index]);
+                }
+            break;
 
-                     fprintf(stdout,"%s: capture iamge success,index = %d, image_counter = %d, put_ptr = %d\n",
-                            __func__,cssc132_config.camera_index,
-                            imageHeap[cssc132_config.camera_index].heap[imageHeap[cssc132_config.camera_index].put_ptr]->image->counter,
-                            imageHeap[cssc132_config.camera_index].put_ptr);
-
-                    pthread_cond_signal(&condImageHeap[cssc132_config.camera_index]);
+            case (unsigned char)STOP_CAPTURE:          //停止采集
+                ret = stopCaptureImage(default_config);
+                if(ret != 0)
+                {
+                    fprintf(stderr, "%s: camera[%d] stop capture image failed\n",__func__,default_config.camera_index);
+                }
+                else
+                {
+                    usleep(1000 * 500);
+                    camera_state = START_CAPTURE;
                 }
             break;
 
             case (unsigned char)DISCONNECT_CAMERA:      //断开相机链接
-                disconnectCamera(&cssc132_config);
-                usleep(1000 * 1000);
+                disconnectCamera(&default_config);
+                usleep(1000 * 10);
+                image_num = 0;
                 camera_state = INIT_CONFIG;
             break;
 
@@ -2089,10 +2197,18 @@ void *thread_cssc132(void *arg)
             break;
         }
 
-        ret = recvResetMsg(cssc132_config.camera_index);
+        ret = recvCameraResetMsg();
         if(ret != -1)
         {
-            camera_state = DISCONNECT_CAMERA;
+            image_num = 0;
+            camera_state = STOP_CAPTURE;
+        }
+
+        ret = recvSync1HzSuccessMsg();
+        if(ret != -1)
+        {
+           sendFrameRateMsgToThreadSync(default_config.trigger_frame_rate);
         }
     }
 }
+

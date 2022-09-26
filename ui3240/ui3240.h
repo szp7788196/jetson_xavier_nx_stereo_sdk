@@ -17,7 +17,6 @@ struct Ui3240Config
 {
     HIDS camera_handle;                     //相机控制句柄
     int camera_id;                          //相机设备id
-    unsigned char camera_index;             //相机索引
     unsigned char master;                   //主镜头
     unsigned char stereo;                   //双镜头
     unsigned char capture_mode;             //获取图像模式，0：队列模式；1：事件等待模式
@@ -61,5 +60,6 @@ struct Ui3240Config
 
 
 void *thread_ui3240(void *arg);
+void printUi3240Config(struct Ui3240Config *config);
 
 #endif

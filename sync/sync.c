@@ -2,106 +2,123 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "monocular.h"
+#include <time.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <semaphore.h>
+#include "stereo.h"
 #include "cmd_parse.h"
 
 static int syncImageAndCameraTimeStamp(unsigned char index)
 {
     int ret = 0;
+    int res = 0;
     int i = 0;
-    struct SyncCamTimeStamp *cam_time_stamp = NULL;
-    struct SyncCamTimeStamp time_stamp;
-    static unsigned int image_counter[MAX_CAMERA_NUM] = {0};
-    static char first_sync[MAX_CAMERA_NUM] = {0};
+    static struct SyncCamTimeStamp time_stamp[MAX_CAMERA_NUM];
+    static char sync_1hz_success[MAX_CAMERA_NUM] = {0};
+    static char got_time_stamp[MAX_CAMERA_NUM] = {0};
+    static char got_image[MAX_CAMERA_NUM] = {0};
+    struct timespec start_tm;
+	struct timespec end_tm;
+    int timeout_ms = 5;
 
-    ret = xQueueReceive((key_t)KEY_SYNC_CAM_TIME_STAMP_MSG + index,(void **)&cam_time_stamp,1);
-    if(ret == -1)
+    if(got_time_stamp[index] == 0)
     {
-        return 0;
-    }
+        clock_gettime(CLOCK_REALTIME, &start_tm);
+        end_tm = ns_to_tm(tm_to_ns(start_tm) + timeout_ms * 1000000);
 
-    memcpy(&time_stamp,cam_time_stamp,sizeof(struct SyncCamTimeStamp));
-    free(cam_time_stamp);
-    cam_time_stamp = NULL;
-
-    pthread_mutex_lock(&mutexImageHeap[index]);
-
-    pthread_cond_wait(&condImageHeap[index], &mutexImageHeap[index]);
-
-    memcpy(imageHeap[index].heap[imageHeap[index].put_ptr]->time_stamp,&time_stamp,sizeof(struct SyncCamTimeStamp));
-
-    if(first_sync[index] == 1)
-    {
-        first_sync[index] = 0;
-
-        do
+        if(sem_timedwait(&sem_t_SyncCamTimeStampHeap[index], &end_tm) == 0)
         {
-            ret = xQueueReceive((key_t)KEY_SYNC_CAM_TIME_STAMP_MSG + index,(void **)&cam_time_stamp,0);
-            if(ret != -1)
+            res = syncCamTimeStampHeapGet(index,&time_stamp[index]);
+            if(res == 0)
             {
-                image_counter[index] = cam_time_stamp->counter;
-
-                free(cam_time_stamp);
-                cam_time_stamp = NULL;
-
-                fprintf(stderr, "%s: +\n",__func__);
-            }
-        }
-        while(ret != -1);
-
-        imageHeap[index].get_ptr = 0;
-
-        for(i = 0; i < imageHeap[index].depth; i ++)
-        {
-            imageHeap[index].heap[i]->image->counter = 0;
-        }
-
-        ret = 0;
-
-//        image_counter[index] = imageHeap[index].heap[imageHeap[index].put_ptr]->time_stamp->counter;
-
-        pthread_mutex_unlock(&mutexImageHeap[index]);
-    }
-    else
-    {
-        image_counter[index] ++;
-        imageHeap[index].heap[imageHeap[index].put_ptr]->image->counter = image_counter[index];
-
-        if(imageHeap[index].heap[imageHeap[index].put_ptr]->image->counter != 
-           imageHeap[index].heap[imageHeap[index].put_ptr]->time_stamp->counter)
-        {
-            if(abs(imageHeap[index].heap[imageHeap[index].put_ptr]->time_stamp->counter - 
-                   imageHeap[index].heap[imageHeap[index].put_ptr]->image->counter) >= NOT_SYNC_THRESHOLD)
-            {
-                fprintf(stderr, "%s: sync image and camera trigger time stamp failed\n",__func__);
-                first_sync[index] = 1;
-                ret = -1;
+                got_time_stamp[index] = 1;
             }
         }
         else
         {
-//            fprintf(stderr, "%s: sync image and camera trigger time stamp success\n",__func__);
-        }
-
-        ret = xQueueSend((key_t)KEY_IMAGE_HANDLER_MSG + index,imageHeap[index].heap[imageHeap[index].put_ptr],imageHeap[index].depth);
-        if(ret == -1)
-        {
-            fprintf(stderr, "%s: send imageHeap[%d].heap[imageHeap[%d].put_ptr] queue msg failed\n",__func__,index,index);
+            // fprintf(stderr, "%s: wait time_stamp[%d] cond timeout or error\n",__func__,index);
         }
     }
 
-    imageHeap[index].put_ptr = (imageHeap[index].put_ptr + 1) % imageHeap[index].depth;
+    if(got_image[index] == 0)
+    {
+        clock_gettime(CLOCK_REALTIME, &start_tm);
+        end_tm = ns_to_tm(tm_to_ns(start_tm) + timeout_ms * 1000000);
 
-	imageHeap[index].cnt += 1;
-	if(imageHeap[index].cnt >= imageHeap[index].depth)
-	{
-		imageHeap[index].cnt = imageHeap[index].depth;
+        if(sem_timedwait(&sem_t_ImageHeap[index], &end_tm) == -1)
+        {
+            res = imageHeapGet(index,&imageBuffer[index]);
+            if(res == 0)
+            {
+                got_image[index] = 1;
+            }
+        }
+        else
+        {
+            // fprintf(stderr, "%s: wait imageBuffer cond timeout or error\n",__func__);
+        }
+    }
 
-		imageHeap[index].get_ptr = imageHeap[index].put_ptr;
-	}
+    if(got_time_stamp[index] == 1 && got_image[index] == 1)
+    {
+        got_time_stamp[index] = 0;
+        got_image[index] = 0;
 
-    pthread_mutex_unlock(&mutexImageHeap[index]);
+        if(time_stamp[index].number != imageBuffer[index].number)
+        {
+            fprintf(stderr, "%s:sync failed  time_stamp[%d].number = %d, imageBuffer[%d].number = %d\n",
+                    __func__,
+                    index,
+                    time_stamp[index].number,
+                    index,
+                    imageBuffer[index].number);
 
+            imageHeap[index].put_ptr = 0;
+            imageHeap[index].get_ptr = 0;
+
+            for(i = 0; i < imageHeap[index].depth; i ++)
+            {
+                imageHeap[index].heap[i]->number = 0;
+            }
+
+            syncCamTimeStampHeap[index].put_ptr = 0;
+            syncCamTimeStampHeap[index].get_ptr = 0;
+
+            for(i = 0; i < syncCamTimeStampHeap[index].depth; i ++)
+            {
+                syncCamTimeStampHeap[index].heap[i]->number = 0;
+            }
+
+            sync_1hz_success[index] = 0;
+            ret = -1;
+
+            goto GET_OUT;
+        }
+        else
+        {
+            if(sync_1hz_success[index] < 10)
+            {
+                sync_1hz_success[index] ++;
+
+                if(sync_1hz_success[index] == 10)
+                {
+                    ret = xQueueSend((key_t)KEY_SYNC_1HZ_SUCCESS_MSG,&sync_1hz_success[index],MAX_QUEUE_MSG_NUM);
+                    if(ret == -1)
+                    {
+                        fprintf(stderr, "%s: send sync_1hz_success[%d] queue msg failed\n",__func__,index);
+                    }
+                }
+            }
+
+            imageUnitHeapPut(index,&imageBuffer[index], &time_stamp[index]);
+
+            sem_post(&sem_t_ImageUnitHeap[index]);
+        }
+    }
+
+GET_OUT:
     return ret;
 }
 
@@ -119,7 +136,7 @@ static int sendQueueMsgToResetCameraAndSyncModule(unsigned char index)
         ret = xQueueSend((key_t)KEY_CAMERA_RESET_MSG + index,camera_reset,MAX_QUEUE_MSG_NUM);
         if(ret == -1)
         {
-            fprintf(stderr, "%s: send camera reset queue msg failed\n",__func__);
+            fprintf(stderr, "%s: send camera[%d] reset queue msg failed\n",__func__,index);
         }
     }
 
@@ -151,9 +168,9 @@ void *thread_sync(void *arg)
         ret = syncImageAndCameraTimeStamp(index);
         if(ret == -1)
         {
-            sendQueueMsgToResetCameraAndSyncModule(index);
+            // sendQueueMsgToResetCameraAndSyncModule(index);
 
-            fprintf(stderr, "%s: send queue msg to reset camera and sync module\n",__func__);
+            fprintf(stderr, "%s: send queue msg to reset camera[%d] and sync module\n",__func__,index);
         }
     }
 }

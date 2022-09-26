@@ -3,12 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 #include "cmd_parse.h"
+#include "stereo.h"
 
+struct CmdArgs cmdArgs;
 
 #define LONG_OPT(a) a
-#define ARGOPT "ha:b:c:d:e:f:g:i:j:k:l:m:n:o:p:q:r:s:t:u:v:w:x:y:z:A:B:C:D:E:F:G:H:I:J:K:L:M:N:"
+#define ARGOPT "ha:b:c:d:e:f:g:i:j:k:l:m:n:o:p:q:r:s:t:u:v:w:x:y:z:A:B:C:D:E:F:G:H:I:J:K:L:M:N:O:P:Q:R:S"
 
-static struct option opts[] = 
+static struct option opts[] =
 {
     { "help",               no_argument,       0, 'h'},
     { "server",             required_argument, 0, 'a'},
@@ -41,15 +43,20 @@ static struct option opts[] =
     { "accel",              required_argument, 0, 'C'},
     { "sample_rate",        required_argument, 0, 'D'},
     { "read_mode",          required_argument, 0, 'E'},
-    { "usb_cam_def",        required_argument, 0, 'F'},
-    { "usb_cam_user",       required_argument, 0, 'G'},
-    { "mipi_cam_user",      required_argument, 0, 'H'},
-    { "camera_module",      required_argument, 0, 'I'},
-    { "imu_heap_depth",     required_argument, 0, 'J'},
-    { "sync_heap_depth",    required_argument, 0, 'K'},
-    { "image_heap_depth",   required_argument, 0, 'L'},
-    { "gnss_heap_depth",    required_argument, 0, 'M'},
-    { "camera_num",         required_argument, 0, 'N'},
+    { "camera1",            required_argument, 0, 'F'},
+    { "camera2",            required_argument, 0, 'G'},
+    { "camera1_ctrl",       required_argument, 0, 'H'},
+    { "camera2_ctrl",       required_argument, 0, 'I'},
+    { "usb_cam_def",        required_argument, 0, 'J'},
+    { "usb_cam_user",       required_argument, 0, 'K'},
+    { "mipi_cam_user",      required_argument, 0, 'L'},
+    { "m3s_cam_def",        required_argument, 0, 'M'},
+    { "m3s_cam_user",       required_argument, 0, 'N'},
+    { "camera_module",      required_argument, 0, 'O'},
+    { "image_heap_depth",   required_argument, 0, 'P'},
+    { "ts_heap_depth",      required_argument, 0, 'Q'},
+    { "camera_num",         required_argument, 0, 'R'},
+    { "version",            no_argument,       0, 'S'},
     { 0,                    0,                 0,  0 }
 };
 
@@ -59,6 +66,8 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
     int getoptr;
     int i = 0;
     int help = 0;
+    unsigned short ver_h = 0;
+    unsigned short ver_l = 0;
 
     args->server                    = "rtk.ntrip.qxwz.com";
     args->port                      = "8002";
@@ -72,7 +81,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
     args->parity1                   = SPAPARITY_NONE;
     args->protocol1                 = SPAPROTOCOL_NONE;
     args->serial2                   = "/dev/ttyTHS0";
-    args->baudrate2                 = SPABAUD_115200;
+    args->baudrate2                 = SPABAUD_230400;
     args->databits2                 = SPADATABITS_8;
     args->stopbits2                 = SPASTOPBITS_1;
     args->parity2                   = SPAPARITY_NONE;
@@ -90,14 +99,18 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
     args->accel_range               = 0;
     args->sample_rate               = 200;
     args->read_mode                 = 1;
+    args->camera1                   = "/dev/video0";
+    args->camera2                   = "/dev/video1";
+    args->camera1_ctrl              = "/dev/cssc132_ctrl_0";
+    args->camera2_ctrl              = "/dev/cssc132_ctrl_1";
     args->usb_cam_def_conf_file     = "./config/ids_default_config.ini";
     args->usb_cam_user_conf_file    = "./config/ids_user_config.ini";
     args->mipi_cam_user_conf_file   = "./config/cssc132_user_config.ini";
-    args->camera_module             = 1;
-    args->imu_heap_depth            = 8;
-    args->sync_heap_depth           = 8;
+    args->m3s_cam_def_conf_file     = "./config/m3s_def_config.ini";
+    args->m3s_cam_user_conf_file    = "./config/m3s_user_config.ini";
+    args->camera_module             = 2;
     args->image_heap_depth          = 8;
-    args->gnss_heap_depth           = 8;
+    args->ts_heap_depth             = 8;
     args->camera_num                = 2;
 
     help = 0;
@@ -230,7 +243,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
             break;
 
             case 'j':
-                if(!strcmp(optarg, "1")) 
+                if(!strcmp(optarg, "1"))
                 {
                     args->stopbits1 = SPASTOPBITS_1;
                 }
@@ -368,7 +381,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
             break;
 
             case 'p':
-                if(!strcmp(optarg, "1")) 
+                if(!strcmp(optarg, "1"))
                 {
                     args->stopbits2 = SPASTOPBITS_1;
                 }
@@ -506,7 +519,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
             break;
 
             case 'v':
-                if(!strcmp(optarg, "1")) 
+                if(!strcmp(optarg, "1"))
                 {
                     args->stopbits3 = SPASTOPBITS_1;
                 }
@@ -633,21 +646,45 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
             break;
 
             case 'F':
-                args->usb_cam_def_conf_file = optarg;
+                args->camera1 = optarg;
             break;
 
             case 'G':
-                args->usb_cam_user_conf_file = optarg;
+                args->camera2 = optarg;
             break;
 
             case 'H':
-                args->mipi_cam_user_conf_file = optarg;
+                args->camera1_ctrl = optarg;
             break;
 
             case 'I':
+                args->camera2_ctrl = optarg;
+            break;
+
+            case 'J':
+                args->usb_cam_def_conf_file = optarg;
+            break;
+
+            case 'K':
+                args->usb_cam_user_conf_file = optarg;
+            break;
+
+            case 'L':
+                args->mipi_cam_user_conf_file = optarg;
+            break;
+
+            case 'M':
+                args->m3s_cam_def_conf_file = optarg;
+            break;
+
+            case 'N':
+                args->m3s_cam_user_conf_file = optarg;
+            break;
+
+            case 'O':
                 i = 0;
                 i = strtol(optarg, 0, 10);
-                if(i > 1)
+                if(i > 2)
                 {
                     res = 0;
                 }
@@ -657,33 +694,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
                 }
             break;
 
-            case 'J':
-                i = 0;
-                i = strtol(optarg, 0, 10);
-                if(i < 0 || i > 256)
-                {
-                    res = 0;
-                }
-                else
-                {
-                    args->imu_heap_depth = i;
-                }
-            break;
-
-            case 'K':
-                i = 0;
-                i = strtol(optarg, 0, 10);
-                if(i < 0 || i > 256)
-                {
-                    res = 0;
-                }
-                else
-                {
-                    args->sync_heap_depth = i;
-                }
-            break;
-
-            case 'L':
+            case 'P':
                 i = 0;
                 i = strtol(optarg, 0, 10);
                 if(i < 0 || i > 256)
@@ -696,7 +707,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
                 }
             break;
 
-            case 'M':
+            case 'Q':
                 i = 0;
                 i = strtol(optarg, 0, 10);
                 if(i < 0 || i > 256)
@@ -705,14 +716,14 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
                 }
                 else
                 {
-                    args->gnss_heap_depth = i;
+                    args->ts_heap_depth = i;
                 }
             break;
 
-            case 'N':
+            case 'R':
                 i = 0;
                 i = strtol(optarg, 0, 10);
-                if(i < 0 || i > MAX_CAMERA_NUM)
+                if(i < 0 || i > 256)
                 {
                     res = 0;
                 }
@@ -722,11 +733,22 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
                 }
             break;
 
-            case 'h': 
+            case 'S':
+                ver_h = HARDWARE_VERSION / 100;
+                ver_l = HARDWARE_VERSION % 100;
+                fprintf(stdout, "hardware version: %02d.%02d\n",ver_h,ver_l);
+                ver_h = SOFTWARE_VERSION / 100;
+                ver_l = SOFTWARE_VERSION % 100;
+                fprintf(stdout, "software version: %02d.%02d\n",ver_h,ver_l);
+
+                exit(1);
+            break;
+
+            case 'h':
                 help = 1;
             break;
 
-            case -1: 
+            case -1:
             break;
 
             default:
@@ -737,7 +759,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
 
     if(!res || help)
     {
-        fprintf(stdout,
+        fprintf(stderr,
         "|===========================================================================================|\n"
         "|**************************************help information*************************************|\n"
         "|===========================================================================================|\n"
@@ -772,15 +794,20 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
         "| -C " LONG_OPT("--accel            ") "accel  range,0:±2g;1:±4g;2:±8g;3:±16g;(for mpu9250)                 |\n"
         "| -D " LONG_OPT("--sample_rate      ") "sample rate ,4~1000(Hz);(for mpu9250)                               |\n"
         "| -E " LONG_OPT("--read_mode        ") "imu read mode,0:normal;1:interrupt;2:timer;(for mpu9250)            |\n"
-        "| -F " LONG_OPT("--usb_cam_def      ") "usb  camera default config file name;                               |\n"
-        "| -G " LONG_OPT("--usb_cam_user     ") "usb  camera user    config file name;                               |\n"
-        "| -H " LONG_OPT("--mipi_cam_user    ") "mipi camera default config file name;                               |\n"
-        "| -I " LONG_OPT("--camera_module    ") "0:usb camera UI3420; 1:csi mipi camera CSSC132;                     |\n"
-        "| -J " LONG_OPT("--imu_heap_depth   ") "imu mpu9250 data heap depth,should be less than 256;                |\n"
-        "| -K " LONG_OPT("--sync_heap_depth  ") "imu adis16505 data heap depth,should be less than 256;              |\n"
-        "| -L " LONG_OPT("--image_heap_depth ") "image data heap depth,should be less than 256;                      |\n"
-        "| -M " LONG_OPT("--gnss_heap_depth  ") "gnss data heap depth,should be less than 256;                       |\n"
-        "| -N " LONG_OPT("--camera_num       ") "number of cameras;                                                  |\n"
+        "| -F " LONG_OPT("--camera1          ") "mipi camera1 name;                                                  |\n"
+        "| -G " LONG_OPT("--camera2          ") "mipi camera2 name;                                                  |\n"
+        "| -H " LONG_OPT("--camera1_ctr      ") "mipi camera1 controller name;                                       |\n"
+        "| -I " LONG_OPT("--camera2_ctrl     ") "mipi camera2 controller name;                                       |\n"
+        "| -J " LONG_OPT("--usb_cam_def      ") "usb  camera default config file name;                               |\n"
+        "| -K " LONG_OPT("--usb_cam_user     ") "usb  camera user    config file name;                               |\n"
+        "| -L " LONG_OPT("--mipi_cam_user    ") "mipi camera default config file name;                               |\n"
+        "| -M " LONG_OPT("--m3s_cam_def      ") "m3s  camera default config file name;                               |\n"
+        "| -N " LONG_OPT("--m3s_cam_user     ") "m3s  camera user    config file name;                               |\n"
+        "| -O " LONG_OPT("--camera_module    ") "0:usb camera UI3420; 1:mipi camera CSSC132; 2:usb camera M3ST130-H  |\n"
+        "| -P " LONG_OPT("--image_heap_depth ") "image data heap depth,should be less than 256;                      |\n"
+        "| -Q " LONG_OPT("--ts_heap_depth    ") "camera timestamp heap depth,should be less than 256;                |\n"
+        "| -R " LONG_OPT("--camera_num       ") "number of cameras;                                                  |\n"
+        "| -S " LONG_OPT("--version          ") "view hardware and software version number;                          |\n"
         "|===========================================================================================|\n"
         );
 
