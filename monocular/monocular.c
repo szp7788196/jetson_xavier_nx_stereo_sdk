@@ -66,31 +66,31 @@ unsigned char CalCheckOr(unsigned char *buf, unsigned short len)
 	return sum;
 }
 
-static unsigned int getbitu(const unsigned char *buff, int pos, int len) 
+static unsigned int getbitu(const unsigned char *buff, int pos, int len)
 {
 	unsigned int bits = 0;
 	int i;
-	
+
 	for(i = pos; i < pos + len; i ++) bits = (bits << 1) + ((buff[i / 8] >> (7 - i % 8)) & 1u);
-	
+
 	return bits;
 }
-static unsigned int rtk_crc24q(const unsigned char *buff, int len) 
+static unsigned int rtk_crc24q(const unsigned char *buff, int len)
 {
 	unsigned int crc = 0;
 	int i;
 
 	for(i = 0; i < len; i ++) crc = ((crc << 8) & 0xFFFFFF) ^ tbl_CRC24Q[(crc >> 16) ^ buff[i]];
-	
+
 	return crc;
 }
 
-int check_rtcm3(const unsigned char *data, unsigned int data_len) 
+int check_rtcm3(const unsigned char *data, unsigned int data_len)
 {
     int ret = 0;
 	int nbyte = 0;
     int len = 0;
-	unsigned char buff[4096];
+	unsigned char buff[NTRIP_RTCM_MSG_MAX_LEN];
 
 	for(int i = 0; i < data_len; i ++)
 	{
@@ -101,9 +101,9 @@ int check_rtcm3(const unsigned char *data, unsigned int data_len)
 				fprintf(stderr, "%s: not correct preamb\n",__func__);
 				continue;
 			}
-			
+
 			buff[nbyte ++] = data[i];
-		} 
+		}
 		else
 		{
 			buff[nbyte ++] = data[i];
@@ -115,7 +115,7 @@ int check_rtcm3(const unsigned char *data, unsigned int data_len)
 				{
                     ret = -1;
 				}
-                
+
 				nbyte = 0;
 				len = 0;
 			}
@@ -131,9 +131,9 @@ int check_rtcm3(const unsigned char *data, unsigned int data_len)
 }
 
 //在str1中查找str2，失败返回0xFF,成功返回str2首个元素在str1中的位置
-unsigned short mystrstr(unsigned char *str1, 
-                        unsigned char *str2, 
-						unsigned short str1_len, 
+unsigned short mystrstr(unsigned char *str1,
+                        unsigned char *str2,
+						unsigned short str1_len,
 						unsigned short str2_len)
 {
 	unsigned short len = str1_len;
@@ -156,9 +156,9 @@ unsigned short mystrstr(unsigned char *str1,
 	}
 }
 
-unsigned short find_str(unsigned char *s_str, 
-                        unsigned char *p_str, 
-						unsigned short count, 
+unsigned short find_str(unsigned char *s_str,
+                        unsigned char *p_str,
+						unsigned short count,
 						unsigned short *seek)
 {
 	unsigned short _count = 1;
@@ -173,7 +173,7 @@ unsigned short find_str(unsigned char *s_str,
     {
         return 0;
     }
-        
+
     for(temp_str = s_str; *temp_str != '\0'; temp_str ++)
     {
         temp_char = temp_str;
@@ -226,11 +226,11 @@ int search_str(unsigned char *source, unsigned char *target)
     }
 }
 
-unsigned short get_str1(unsigned char *source, 
-                        unsigned char *begin, 
-						unsigned short count1, 
-						unsigned char *end, 
-						unsigned short count2, 
+unsigned short get_str1(unsigned char *source,
+                        unsigned char *begin,
+						unsigned short count1,
+						unsigned char *end,
+						unsigned short count2,
 						unsigned char *out)
 {
 	unsigned short i;
@@ -258,10 +258,10 @@ unsigned short get_str1(unsigned char *source,
     return length;
 }
 
-unsigned short get_str2(unsigned char *source, 
-                        unsigned char *begin, 
-						unsigned short count, 
-						unsigned short length, 
+unsigned short get_str2(unsigned char *source,
+                        unsigned char *begin,
+						unsigned short count,
+						unsigned short length,
 						unsigned char *out)
 {
 	unsigned short i = 0;
@@ -436,19 +436,19 @@ int xQueueReceive(key_t queue_key,void **msg_from_queue,unsigned char block)
 	{
 		ret = msgrcv(msg_id,&msg,sizeof(msg.mtext),1,IPC_NOWAIT);
 	}
-	
+
     if(ret == -1)
     {
         return -1;
     }
 
-	*msg_from_queue = (void *)((((long)msg.mtext[0] << 56) & 0xFF00000000000000) + 
-                               (((long)msg.mtext[1] << 48) & 0x00FF000000000000) + 
-                               (((long)msg.mtext[2] << 40) & 0x0000FF0000000000) + 
-                               (((long)msg.mtext[3] << 32) & 0x000000FF00000000) + 
-                               (((long)msg.mtext[4] << 24) & 0x00000000FF000000) + 
-                               (((long)msg.mtext[5] << 16) & 0x0000000000FF0000) + 
-                               (((long)msg.mtext[6] <<  8) & 0x000000000000FF00) + 
+	*msg_from_queue = (void *)((((long)msg.mtext[0] << 56) & 0xFF00000000000000) +
+                               (((long)msg.mtext[1] << 48) & 0x00FF000000000000) +
+                               (((long)msg.mtext[2] << 40) & 0x0000FF0000000000) +
+                               (((long)msg.mtext[3] << 32) & 0x000000FF00000000) +
+                               (((long)msg.mtext[4] << 24) & 0x00000000FF000000) +
+                               (((long)msg.mtext[5] << 16) & 0x0000000000FF0000) +
+                               (((long)msg.mtext[6] <<  8) & 0x000000000000FF00) +
                                (((long)msg.mtext[7] <<  0) & 0x00000000000000FF));
 
 	return ret;
@@ -516,7 +516,7 @@ void clearSystemQueueMsg(void)
 		}
 		while(ret != -1);
 	}
-	
+
 	do
 	{
 		ret = xQueueReceive((key_t)KEY_IMU_ADS16505_HANDLER_MSG,(void **)&pointer,0);
@@ -604,7 +604,7 @@ int allocateImageHeap(unsigned char index,unsigned short depth,unsigned int imag
 	}
 
 	for(i = 0; i < imageHeap[index].depth; i ++)
-	{	
+	{
 		imageHeap[index].heap[i] = NULL;
 		imageHeap[index].heap[i] = (struct ImageHeapUnit *)malloc(sizeof(struct ImageHeapUnit));
 		if(imageHeap[index].heap[i] == NULL)
@@ -857,7 +857,7 @@ int imageHeapGet(unsigned char index, struct ImageHeapUnit *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexImageHeap[index]); 
+	pthread_mutex_lock(&mutexImageHeap[index]);
 
 	if(imageHeap[index].cnt > 0)
 	{
@@ -883,7 +883,7 @@ int imuAdis16505HeapPut(struct SyncImuData *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexImuAdis16505Heap); 
+	pthread_mutex_lock(&mutexImuAdis16505Heap);
 
 	memcpy(imuAdis16505Heap.heap[imuAdis16505Heap.put_ptr],data,sizeof(struct SyncImuData));
 
@@ -923,7 +923,7 @@ int imuAdis16505HeapGet(struct SyncImuData *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexImuAdis16505Heap); 
+	pthread_mutex_lock(&mutexImuAdis16505Heap);
 
 	if(imuAdis16505Heap.cnt > 0)
 	{
@@ -949,7 +949,7 @@ int imuMpu9250HeapPut(struct Mpu9250SampleData *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexImuMpu9250Heap); 
+	pthread_mutex_lock(&mutexImuMpu9250Heap);
 
 	memcpy(imuMpu9250Heap.heap[imuMpu9250Heap.put_ptr],data,sizeof(struct Mpu9250SampleData));
 
@@ -988,7 +988,7 @@ int imuMpu9250HeapGet(struct Mpu9250SampleData *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexImuMpu9250Heap); 
+	pthread_mutex_lock(&mutexImuMpu9250Heap);
 
 	if(imuMpu9250Heap.cnt > 0)
 	{
@@ -1014,7 +1014,7 @@ int gnssUb482HeapPut(struct Ub482GnssData *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexGnssUb482Heap); 
+	pthread_mutex_lock(&mutexGnssUb482Heap);
 
 	memcpy(gnssUb482Heap.heap[gnssUb482Heap.put_ptr],data,sizeof(struct Ub482GnssData));
 
@@ -1053,7 +1053,7 @@ int gnssUb482HeapGet(struct Ub482GnssData *data)
 		return -1;
 	}
 
-	pthread_mutex_lock(&mutexGnssUb482Heap); 
+	pthread_mutex_lock(&mutexGnssUb482Heap);
 
 	if(gnssUb482Heap.cnt > 0)
 	{
@@ -1075,9 +1075,9 @@ int gnssUb482HeapGet(struct Ub482GnssData *data)
 * outBuf -- RGB565 data
 * image_width,image_height -- image width and height
 */
-static int convert_UYVY_To_RGB(unsigned char *in_buf, 
-                        unsigned char *out_buf, 
-						int image_width, 
+static int convert_UYVY_To_RGB(unsigned char *in_buf,
+                        unsigned char *out_buf,
+						int image_width,
 						int image_height)
 {
     int rows ,cols;	                        /* 行列标志 */
@@ -1138,7 +1138,7 @@ static int convert_UYVY_To_RGB(unsigned char *in_buf,
 			//y_pos++;
 			i ++;
 			/* 每两个Y更新一次UV */
-			if(!(i & 0x01))	
+			if(!(i & 0x01))
 			{
 				u_pos = y_pos - 1;
 				v_pos = y_pos + 1;
@@ -1196,7 +1196,7 @@ int imageBufCompressToJpeg(char * file_name,
 
     outfile = fopen(file_name, "wb");
 
-    if(outfile == NULL) 
+    if(outfile == NULL)
     {
         fprintf(stderr, "%s: can't open %s\n",__func__,file_name);
         return -1;
@@ -1236,7 +1236,7 @@ int imageBufCompressToJpeg(char * file_name,
 
     while(com_cinfo.next_scanline < com_cinfo.image_height)
     {
-        row_pointer[0] = &rgb_buf[com_cinfo.next_scanline * row_stride];  // image_buffer指向要压缩的数据  
+        row_pointer[0] = &rgb_buf[com_cinfo.next_scanline * row_stride];  // image_buffer指向要压缩的数据
         jpeg_write_scanlines(&com_cinfo, row_pointer, 1);
     }
 
@@ -1269,7 +1269,7 @@ static void syncAndMutexCreate(void)
     pthread_mutex_init(&mutexImuAdis16505Heap, NULL);
     pthread_mutex_init(&mutexImuMpu9250Heap, NULL);
     pthread_mutex_init(&mutexGnssUb482Heap, NULL);
-    
+
 }
 
 static int pthreadCreate(void *args)
@@ -1353,7 +1353,7 @@ static int pthreadCreate(void *args)
 
 		usleep(1000 * 10);
 	}
-    
+
 	cmdArgs.camera_index = 0;
 
     ret = pthread_create(&tid_led,NULL,thread_led,&cmdArgs);
@@ -1374,7 +1374,7 @@ static int pthreadCreate(void *args)
 	}
 
 	cmdArgs.camera_index = 0;
-	
+
 	ret = pthread_create(&tid_imu_ads16505_handler,NULL,thread_imu_ads16505_handler,NULL);
     if(0 != ret)
     {

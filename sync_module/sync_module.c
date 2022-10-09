@@ -367,7 +367,7 @@ static int syncParseImuBmi088Data(unsigned char *inbuf,struct SyncImuData *imu_d
 
     acc_range_conf = *(inbuf + POS_IMU_PAYLOAD + 10);
 
-    switch(gyro_range_conf)
+    switch(acc_range_conf)
     {
         case 0:
             imu_data->acc_range = 2;

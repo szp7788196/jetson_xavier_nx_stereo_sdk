@@ -1,7 +1,7 @@
 #ifndef __NET_H
 #define __NET_H
 
-#define MAX_NET_BUF_LEN		1024
+#define MAX_NET_BUF_LEN		2048
 
 enum ConnectState
 {
@@ -12,7 +12,7 @@ enum ConnectState
 	CREATED_SOCKED	= 3,
 	CONNECTED		= 4,
 	LOGGED_IN		= 5,
-	
+
 };
 
 extern enum ConnectState connectState;
