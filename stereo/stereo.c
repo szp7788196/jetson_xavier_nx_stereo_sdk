@@ -103,7 +103,7 @@ int check_rtcm3(const unsigned char *data, unsigned int data_len)
     int ret = 0;
 	int nbyte = 0;
     int len = 0;
-	unsigned char buff[4096];
+	unsigned char buff[NTRIP_RTCM_MSG_MAX_LEN];
 
 	for(int i = 0; i < data_len; i ++)
 	{
