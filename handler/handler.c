@@ -243,3 +243,32 @@ void *thread_rangeh_ub482_handler(void *arg)
         }
     }
 }
+
+void *thread_odb2_objects_handler(void *arg)
+{
+    int ret = 0;
+    struct ODB2_Objects *odb2_objects = NULL;
+
+    while(1)
+    {
+        ret = xQueueReceive((key_t)KEY_VEHICLE_SPEED_MSG,(void **)&odb2_objects,1);
+        if(ret == -1)
+        {
+            fprintf(stderr, "%s: recv KEY_VEHICLE_SPEED_MSG error\n",__func__);
+        }
+        else
+        {
+            if(dataHandler.odb2_objects_handler != NULL)
+            {
+                ret = dataHandler.odb2_objects_handler(odb2_objects);
+                if(ret != 0)
+                {
+                    fprintf(stderr, "%s: dataHandler.odb2_objects_handler error\n",__func__);
+                }
+            }
+
+            free(odb2_objects);
+            odb2_objects = NULL;
+        }
+    }
+}

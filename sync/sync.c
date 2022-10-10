@@ -136,6 +136,9 @@ static int sendQueueMsgToResetCameraAndSyncModule(unsigned char index)
         ret = xQueueSend((key_t)KEY_CAMERA_RESET_MSG + index,camera_reset,MAX_QUEUE_MSG_NUM);
         if(ret == -1)
         {
+            free(camera_reset);
+            camera_reset = NULL;
+
             fprintf(stderr, "%s: send camera[%d] reset queue msg failed\n",__func__,index);
         }
     }
@@ -148,6 +151,9 @@ static int sendQueueMsgToResetCameraAndSyncModule(unsigned char index)
         ret = xQueueSend((key_t)KEY_SYNC_MODULE_RESET_MSG,sync_module_reset,MAX_QUEUE_MSG_NUM);
         if(ret == -1)
         {
+            free(sync_module_reset);
+            sync_module_reset = NULL;
+
             fprintf(stderr, "%s: send sync module reset queue msg failed\n",__func__);
         }
     }

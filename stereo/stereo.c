@@ -37,7 +37,7 @@ sem_t sem_t_ImageUnitHeap[MAX_CAMERA_NUM];
 sem_t sem_t_SyncCamTimeStampHeap[MAX_CAMERA_NUM];
 
 
-struct DataHandler dataHandler = {NULL,NULL,NULL,NULL,NULL,NULL};
+struct DataHandler dataHandler = {NULL,NULL,NULL,NULL,NULL,NULL,NULL};
 
 unsigned int CRC32(unsigned char *buf, unsigned int size)
 {
@@ -1983,11 +1983,11 @@ static int pthreadCreate(void *args)
 		fprintf(stderr, "%s: create thread_led failed\n",__func__);
 	}
 
-	/* ret = pthread_create(&tid_odb2,NULL,thread_odb2,NULL);
+	ret = pthread_create(&tid_odb2,NULL,thread_odb2,&cmdArgs);
     if(0 != ret)
     {
         fprintf(stderr, "%s: create thread_odb2 failed\n",__func__);
-    } */
+    }
 
 	for(cmdArgs.camera_index = 0; cmdArgs.camera_index < cmdArgs.camera_num; cmdArgs.camera_index ++)
 	{
@@ -2058,7 +2058,8 @@ void monocular_sdk_register_handler(ImageHandler *image_handler,
 									ImuMpu9250Handler imu_mpu9250_handler,
 									GnssUb482Handler gnss_ub482_handler,
 									EphemerisUb482Handler ephemeris_ub482_handler,
-									RangehUb482Handler rangeh_ub482_handler)
+									RangehUb482Handler rangeh_ub482_handler,
+									Odb2ObjectsHandler odb2_objects_handler)
 {
 	dataHandler.image_handler        	= image_handler;
 	dataHandler.imu_sync_handler 		= imu_sync_handler;
@@ -2066,4 +2067,5 @@ void monocular_sdk_register_handler(ImageHandler *image_handler,
 	dataHandler.gnss_ub482_handler   	= gnss_ub482_handler;
 	dataHandler.ephemeris_ub482_handler	= ephemeris_ub482_handler;
 	dataHandler.rangeh_ub482_handler   	= rangeh_ub482_handler;
+	dataHandler.odb2_objects_handler   	= odb2_objects_handler;
 }

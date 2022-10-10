@@ -167,6 +167,9 @@ static void *thread_serial_recv(void *arg)
                                         ret = xQueueSend((key_t)KEY_IMU_ADS16505_HANDLER_MSG,sync_imu_data,MAX_QUEUE_MSG_NUM);
                                         if(ret == -1)
                                         {
+                                            free(sync_imu_data);
+                                            sync_imu_data = NULL;
+
                                             fprintf(stderr, "%s: send sync_imu_data queue msg failed\n",__func__);
                                         }
                                     }

@@ -214,6 +214,13 @@ int imuSyncHandler(struct SyncImuData *sync_imu_data)
     return ret;
 }
 
+int odb2ObjectsHandler(struct ODB2_Objects *odb2_objects)
+{
+    fprintf(stderr, "%s: odb2_objects->vehicle_speed = %d\n",__func__,odb2_objects->vehicle_speed);
+
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     int ret = 0;
@@ -275,7 +282,7 @@ int main(int argc, char **argv)
     image_handler[1] = imageHandler1;
     image_handler[2] = NULL;
 
-    monocular_sdk_register_handler(image_handler,imuSyncHandler,NULL,NULL,NULL,NULL);
+    monocular_sdk_register_handler(image_handler,imuSyncHandler,NULL,NULL,NULL,NULL,odb2ObjectsHandler);
 
     // cvNamedWindow("Capture",CV_WINDOW_AUTOSIZE);
 

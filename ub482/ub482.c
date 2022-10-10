@@ -1890,6 +1890,9 @@ void sendTimeStampMsgToThreadSync(void)
     ret = xQueueSend((key_t)KEY_UB482_TIME_STAMP_MSG,time_stamp,MAX_QUEUE_MSG_NUM);
     if(ret == -1)
     {
+        free(time_stamp);
+        time_stamp = NULL;
+
         fprintf(stderr, "%s: send ub482 time stamp queue msg failed\n",__func__);
     }
 }
@@ -1897,6 +1900,7 @@ void sendTimeStampMsgToThreadSync(void)
 static int recvAndParseUb482GnssData(void)
 {
     int ret = 0;
+    unsigned char i = 0;
     int recv_len = 0;
     struct timeval tv;
     static time_t time_sec = 0;
@@ -1971,6 +1975,9 @@ static int recvAndParseUb482GnssData(void)
                     ret = xQueueSend((key_t)KEY_UB482_GPGGA_MSG,gpgga_msg,MAX_QUEUE_MSG_NUM);
                     if(ret == -1)
                     {
+                        free(gpgga_msg);
+                        gpgga_msg = NULL;
+
                         fprintf(stderr, "%s: send gpgga queue msg failed\n",__func__);
                     }
                 }
@@ -2010,6 +2017,9 @@ static int recvAndParseUb482GnssData(void)
                         ret = xQueueSend((key_t)KEY_GNSS_UB482_HANDLER_MSG,ub482_gnss_data,MAX_QUEUE_MSG_NUM);
                         if(ret == -1)
                         {
+                            free(ub482_gnss_data);
+                            ub482_gnss_data = NULL;
+
                             fprintf(stderr, "%s: send ub482_gnss_data queue msg failed\n",__func__);
                         }
                     }
@@ -2108,6 +2118,9 @@ static int recvAndParseUb482GnssData(void)
                     ret = xQueueSend((key_t)KEY_EPHEMERIS_MSG,ephemeris,MAX_QUEUE_MSG_NUM);
                     if(ret == -1)
                     {
+                        free(ephemeris);
+                        ephemeris = NULL;
+
                         fprintf(stderr, "%s: send ephemeris queue msg failed\n",__func__);
                     }
                 }
@@ -2124,6 +2137,18 @@ static int recvAndParseUb482GnssData(void)
                             ret = xQueueSend((key_t)KEY_RANGEH_MSG,rangeh,MAX_QUEUE_MSG_NUM);
                             if(ret == -1)
                             {
+                                for(i = 0; i < rangeh->satellite_num; i ++)
+                                {
+                                    free(rangeh->data[i]);
+                                    rangeh->data[i] = NULL;
+                                }
+
+                                free(rangeh->data);
+                                rangeh->data = NULL;
+
+                                free(rangeh);
+                                rangeh = NULL;
+
                                 fprintf(stderr, "%s: send rangeh queue msg failed\n",__func__);
                             }
                         }

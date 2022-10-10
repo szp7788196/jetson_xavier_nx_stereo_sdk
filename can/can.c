@@ -89,12 +89,12 @@ int canSend(int fd,unsigned int id,unsigned char *buf,unsigned short len)
 
         // fprintf(stdout, "%s: #%04X-send[%d]\n",__func__,id,length);
 
-        // for(i = 0; i < length && i < 8; i ++)
-        // {
-        //     frame.data[i] = buf[length1 + i];
-        //     printf("%02X ",buf[length1 + i]);
-        // }
-        // printf("\n");
+        for(i = 0; i < length && i < 8; i ++)
+        {
+            frame.data[i] = buf[length1 + i];
+            /* printf("%02X ",buf[length1 + i]); */
+        }
+        /* printf("\n"); */
 
         ret = send(fd, &frame, sizeof(frame), 0);
 
@@ -152,13 +152,13 @@ unsigned short canFrameReceive(int fd,struct can_frame *frame)
             fprintf(stderr, "%s: can read failed: %s\n",__func__,strerror(errno));
         }
 
-		// fprintf(stderr, "%s: #%02X-recv[%d]:\n",__func__,frame->can_id,frame->can_dlc);
+		/* fprintf(stderr, "%s: #%02X-recv[%d]:\n",__func__,frame->can_id,frame->can_dlc);
 
-		// for(i = 0; i < frame->can_dlc && i <= 8; i ++)
-		// {
-        //     printf("%02X ",frame->data[i]);
-        // }
-        // printf("\n");
+		for(i = 0; i < frame->can_dlc && i <= 8; i ++)
+		{
+            printf("%02X ",frame->data[i]);
+        }
+        printf("\n"); */
 
 		return frame->can_dlc;
 	}

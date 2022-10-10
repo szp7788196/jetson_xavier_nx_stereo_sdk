@@ -5,6 +5,10 @@
 
 void *thread_odb2(void *arg);
 
+struct ODB2_Objects
+{
+    unsigned char vehicle_speed;
+};
 
 
 #endif

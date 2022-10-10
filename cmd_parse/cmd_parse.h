@@ -58,6 +58,8 @@ struct CmdArgs
 
   unsigned char camera_num;            //相机数量
   unsigned char camera_index;          //相机索引
+
+  unsigned short vehicle_speed_rate;   //车辆速度读取频率
 };
 
 

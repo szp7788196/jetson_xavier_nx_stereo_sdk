@@ -270,6 +270,11 @@ static int recvNtripDataAndSendToNtripMsg(void)
                     ret = xQueueSend((key_t)KEY_NTRIP_RTCM_MSG,ntrip_rtcm_msg,MAX_QUEUE_MSG_NUM);
                     if(ret == -1)
                     {
+                        free(ntrip_rtcm_msg->msg);
+                        free(ntrip_rtcm_msg);
+                        ntrip_rtcm_msg->msg = NULL;
+                        ntrip_rtcm_msg = NULL;
+
                         fprintf(stderr, "%s: send ntrip rtcm queue msg failed\n",__func__);
                     }
                 }

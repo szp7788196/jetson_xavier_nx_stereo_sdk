@@ -77,6 +77,9 @@ void *thread_mpu9250(void *arg)
                         ret = xQueueSend((key_t)KEY_IMU_MPU9250_HANDLER_MSG,mpu9250_sample_data,MAX_QUEUE_MSG_NUM);
                         if(ret == -1)
                         {
+                            free(mpu9250_sample_data);
+                            mpu9250_sample_data = NULL;
+
                             fprintf(stderr, "%s: send mpu9250_sample_data queue msg failed\n",__func__);
                         }
                     }

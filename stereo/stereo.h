@@ -11,6 +11,7 @@
 #include "sync_module.h"
 #include "ub482.h"
 #include "serial.h"
+#include "odb2.h"
 
 
 #define HARDWARE_VERSION                101
@@ -34,6 +35,7 @@
 #define KEY_CAMERA_READY_MSG			KEY_CAMERA_RESET_MSG + MAX_CAMERA_NUM + 6
 #define KEY_EPHEMERIS_MSG				KEY_CAMERA_RESET_MSG + MAX_CAMERA_NUM + 7
 #define KEY_RANGEH_MSG					KEY_CAMERA_RESET_MSG + MAX_CAMERA_NUM + 8
+#define KEY_VEHICLE_SPEED_MSG			KEY_CAMERA_RESET_MSG + MAX_CAMERA_NUM + 9
 
 #define NTRIP_RTCM_MSG_MAX_LEN          2048
 
@@ -155,6 +157,7 @@ typedef int (*ImuMpu9250Handler)(struct Mpu9250SampleData *);
 typedef int (*GnssUb482Handler)(struct Ub482GnssData *);
 typedef int (*EphemerisUb482Handler)(struct Ephemeris *);
 typedef int (*RangehUb482Handler)(struct Rangeh *);
+typedef int (*Odb2ObjectsHandler)(struct ODB2_Objects *);
 
 struct DataHandler
 {
@@ -164,6 +167,7 @@ struct DataHandler
 	GnssUb482Handler gnss_ub482_handler;
 	EphemerisUb482Handler ephemeris_ub482_handler;
 	RangehUb482Handler rangeh_ub482_handler;
+	Odb2ObjectsHandler odb2_objects_handler;
 };
 
 struct BITMAPFILEHEADER
@@ -398,6 +402,7 @@ void monocular_sdk_register_handler(ImageHandler *image_handler,
 									ImuMpu9250Handler imu_mpu9250_handler,
 									GnssUb482Handler gnss_ub482_handler,
 									EphemerisUb482Handler ephemeris_ub482_handler,
-									RangehUb482Handler rangeh_ub482_handler);
+									RangehUb482Handler rangeh_ub482_handler,
+									Odb2ObjectsHandler odb2_objects_handler);
 
 #endif
