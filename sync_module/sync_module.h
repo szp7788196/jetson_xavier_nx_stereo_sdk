@@ -20,6 +20,11 @@
 #define IMU_ADIS16505_DATA_LEN      54
 #define CAM_TRIGGER_DATA_LEN        20
 
+#define POS_ICM20948_PAYLOAD        17
+#define POS_ICM20948_IMU_CNT        31
+
+#define IMU_ICM20948_DATA_LEN       35
+
 
 enum SyncState
 {
@@ -41,6 +46,7 @@ enum ParserState {
 enum ImuModule {
     IMU_ADIS16505   = 0,
     IMU_BMI088      = 1,
+    IMU_ICM20948    = 2,
 };
 
 struct SyncImuData

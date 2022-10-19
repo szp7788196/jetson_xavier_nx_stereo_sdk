@@ -17,6 +17,10 @@
 // len = 3 + 8 + 8 + 2 + 32 + 4 = 57
 // 时间戳协议格式：EB 90 0X [8字节本地时间戳] [8字节gnss时间戳] [4字节counter]
 // len = 3 + 8 + 8 + 4 = 23
+
+static unsigned int syncModuleFreqHz = 1000000;
+static unsigned char syncModuleModel = 0;
+
 static enum SyncState syncState = SET_STOP;
 static struct Serial serialSync;
 static double frameRate = 30.0f;
@@ -28,6 +32,7 @@ static RingBuf ring_fifo;
 static unsigned char rx_fifo[MAX_SYNC_BUF_LEN] = {0};
 
 
+static int syncParseImuIcm20948Data(unsigned char *inbuf,struct SyncImuData *imu_data);
 static int syncParseImuBmi088Data(unsigned char *inbuf,struct SyncImuData *imu_data);
 static int syncParseImuAdis16505Data(unsigned char *inbuf,struct SyncImuData *imu_data);
 static int syncParseCamTimeStamp(unsigned char *inbuf,struct SyncCamTimeStamp *cam_time_stamp);
@@ -128,8 +133,9 @@ static void *thread_serial_recv(void *arg)
                         case IMU_DATA:
                             ringbuf_put(&ring_fifo, rxdata);
 
-                            if(ringbuf_elements(&ring_fifo) == IMU_ADIS16505_DATA_LEN ||
-                               ringbuf_elements(&ring_fifo) == IMU_BMI088_DATA_LEN)
+                            if(ringbuf_elements(&ring_fifo) == IMU_BMI088_DATA_LEN ||
+                               ringbuf_elements(&ring_fifo) == IMU_ICM20948_DATA_LEN ||
+                               ringbuf_elements(&ring_fifo) == IMU_ADIS16505_DATA_LEN)
                             {
                                 struct SyncImuData *sync_imu_data = NULL;
 
@@ -141,6 +147,20 @@ static void *thread_serial_recv(void *arg)
                                         if(*(ring_fifo.data + 16) == 0x0F && *(ring_fifo.data + 17) == 0x1E)
                                         {
                                             ret = syncParseImuBmi088Data(ring_fifo.data,sync_imu_data);
+                                        }
+                                        else
+                                        {
+                                            free(sync_imu_data);
+                                            sync_imu_data = NULL;
+
+                                            goto GET_OUT;
+                                        }
+                                    }
+                                    else if(ringbuf_elements(&ring_fifo) == IMU_ICM20948_DATA_LEN)
+                                    {
+                                        if(*(ring_fifo.data + 16) == 0xEA)
+                                        {
+                                            ret = syncParseImuIcm20948Data(ring_fifo.data,sync_imu_data);
                                         }
                                         else
                                         {
@@ -167,9 +187,6 @@ static void *thread_serial_recv(void *arg)
                                         ret = xQueueSend((key_t)KEY_IMU_ADS16505_HANDLER_MSG,sync_imu_data,MAX_QUEUE_MSG_NUM);
                                         if(ret == -1)
                                         {
-                                            free(sync_imu_data);
-                                            sync_imu_data = NULL;
-
                                             fprintf(stderr, "%s: send sync_imu_data queue msg failed\n",__func__);
                                         }
                                     }
@@ -228,11 +245,15 @@ static int syncSetCamTrigFreq(unsigned short freq_hz)
     unsigned int  num = 0;
     unsigned char msg[7] = {0xEB, 0x90, 0x02, 0x00, 0x03, 0xD0, 0x8F};
     unsigned char tmp[4] = {0};
-    unsigned int freq = (unsigned int)freq_hz;
 
-    // num = FPGA_CLOCK_HZ / 2 / freq_hz - 1;
-
-    num = freq;
+    if(syncModuleModel == 0)
+    {
+        num = (unsigned int)freq_hz;
+    }
+    else if(syncModuleModel == 1)
+    {
+        num = syncModuleFreqHz / 2 / freq_hz - 1;
+    }
 
     memcpy(tmp, &num, sizeof(unsigned int));
 
@@ -272,7 +293,7 @@ static int syncSetTimeStamp(double t)
     int i = 0;
     unsigned char msg[11] = {0xEB, 0x90, 0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
     unsigned char tmsg[8] = {0};
-    unsigned long time = (unsigned long )t * FPGA_CLOCK_HZ;
+    unsigned long time = (unsigned long )t * syncModuleFreqHz;
 
     memcpy(tmsg, &time, 8);
 
@@ -282,6 +303,86 @@ static int syncSetTimeStamp(double t)
     }
 
     ret = SerialWrite(&serialSync, (char *)msg, 11);
+
+    return ret;
+}
+
+static int syncParseImuIcm20948Data(unsigned char *inbuf,struct SyncImuData *imu_data)
+{
+    int ret = 0;
+    static unsigned int last_counter = 0;
+    unsigned long time_stamp = 0;
+    int i = 0;
+
+    if(*(inbuf + POS_IMU_HEAD + 0) != 0xEA)
+    {
+        fprintf(stderr, "%s: imu data head err,is not 0xEA\n",__func__);
+        return -1;
+    }
+
+    imu_data->imu_module = IMU_ICM20948;
+
+    imu_data->counter = ((((unsigned int)(*(inbuf + POS_ICM20948_IMU_CNT + 0))) << 24) & 0xFF000000) +
+                        ((((unsigned int)(*(inbuf + POS_ICM20948_IMU_CNT + 1))) << 16) & 0x00FF0000) +
+                        ((((unsigned int)(*(inbuf + POS_ICM20948_IMU_CNT + 2))) <<  8) & 0x0000FF00) +
+                        ((((unsigned int)(*(inbuf + POS_ICM20948_IMU_CNT + 3))) <<  0) & 0x000000FF);
+    if(last_counter > 0)
+    {
+        if(imu_data->counter - last_counter != 1)
+        {
+            fprintf(stderr, "%s: imu data counter err,is not continous,current = %d,last = %d\n",__func__,imu_data->counter,last_counter);
+        }
+    }
+
+    last_counter = imu_data->counter;
+
+    time_stamp = ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 0))) << 56) & 0xFF00000000000000) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 1))) << 48) & 0x00FF000000000000) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 2))) << 40) & 0x0000FF0000000000) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 3))) << 32) & 0x000000FF00000000) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 4))) << 24) & 0x00000000FF000000) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 5))) << 16) & 0x0000000000FF0000) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
+                 ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
+
+    imu_data->time_stamp_local = (double)time_stamp / (double)syncModuleFreqHz;
+
+    time_stamp = ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 0))) << 56) & 0xFF00000000000000) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 1))) << 48) & 0x00FF000000000000) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 2))) << 40) & 0x0000FF0000000000) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 3))) << 32) & 0x000000FF00000000) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 4))) << 24) & 0x00000000FF000000) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 5))) << 16) & 0x0000000000FF0000) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
+                 ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
+
+    imu_data->time_stamp_gnss = (double)time_stamp / (double)syncModuleFreqHz;
+
+    imu_data->ax = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 0))) << 8) & 0x0000FF00) +
+                   ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 1))) << 0) & 0x000000FF);
+
+    imu_data->ay = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 2))) << 8) & 0x0000FF00) +
+                   ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 3))) << 0) & 0x000000FF);
+
+    imu_data->az = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 4))) << 8) & 0x0000FF00) +
+                   ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 5))) << 0) & 0x000000FF);
+
+    imu_data->gx = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 6))) << 8) & 0x0000FF00) +
+                   ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 7))) << 0) & 0x000000FF);
+
+    imu_data->gy = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 8))) << 8) & 0x0000FF00) +
+                   ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 9))) << 0) & 0x000000FF);
+
+    imu_data->gz = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 10))) << 8) & 0x0000FF00) +
+                   ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 11))) << 0) & 0x000000FF);
+
+    imu_data->temperature = ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 12))) << 8) & 0x0000FF00) +
+                            ((((int)(*(inbuf + POS_ICM20948_PAYLOAD + 13))) << 0) & 0x000000FF);
+
+    if(imu_data->counter == 0)
+    {
+        return -1;
+    }
 
     return ret;
 }
@@ -326,7 +427,7 @@ static int syncParseImuBmi088Data(unsigned char *inbuf,struct SyncImuData *imu_d
                  ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
                  ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
 
-    imu_data->time_stamp_local = (double)time_stamp / (double)FPGA_CLOCK_HZ;
+    imu_data->time_stamp_local = (double)time_stamp / (double)syncModuleFreqHz;
 
     time_stamp = ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 0))) << 56) & 0xFF00000000000000) +
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 1))) << 48) & 0x00FF000000000000) +
@@ -337,7 +438,7 @@ static int syncParseImuBmi088Data(unsigned char *inbuf,struct SyncImuData *imu_d
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
 
-    imu_data->time_stamp_gnss = (double)time_stamp / (double)FPGA_CLOCK_HZ;
+    imu_data->time_stamp_gnss = (double)time_stamp / (double)syncModuleFreqHz;
 
     gyro_range_conf = *(inbuf + POS_IMU_PAYLOAD + 6);
 
@@ -466,7 +567,7 @@ static int syncParseImuAdis16505Data(unsigned char *inbuf,struct SyncImuData *im
                  ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
                  ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
 
-    imu_data->time_stamp_local = (double)time_stamp / (double)FPGA_CLOCK_HZ;
+    imu_data->time_stamp_local = (double)time_stamp / (double)syncModuleFreqHz;
 
     time_stamp = ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 0))) << 56) & 0xFF00000000000000) +
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 1))) << 48) & 0x00FF000000000000) +
@@ -477,7 +578,7 @@ static int syncParseImuAdis16505Data(unsigned char *inbuf,struct SyncImuData *im
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
 
-    imu_data->time_stamp_gnss = (double)time_stamp / (double)FPGA_CLOCK_HZ;
+    imu_data->time_stamp_gnss = (double)time_stamp / (double)syncModuleFreqHz;
 
     imu_data->gx = ((((int)(*(inbuf + POS_IMU_PAYLOAD + 4))) << 24) & 0xFF000000) +
                    ((((int)(*(inbuf + POS_IMU_PAYLOAD + 5))) << 16) & 0x00FF0000) +
@@ -546,7 +647,7 @@ static int syncParseCamTimeStamp(unsigned char *inbuf,struct SyncCamTimeStamp *c
                  ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
                  ((((unsigned long)(*(inbuf + POS_LOCAL_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
 
-    cam_time_stamp->time_stamp_local = (double)time_stamp / (double)FPGA_CLOCK_HZ;
+    cam_time_stamp->time_stamp_local = (double)time_stamp / (double)syncModuleFreqHz;
 
     last_time_stamp_local = cam_time_stamp->time_stamp_local;
 
@@ -559,7 +660,7 @@ static int syncParseCamTimeStamp(unsigned char *inbuf,struct SyncCamTimeStamp *c
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 6))) <<  8) & 0x000000000000FF00) +
                  ((((unsigned long)(*(inbuf + POS_GNSS_TIME_STAMP + 7))) <<  0) & 0x00000000000000FF);
 
-    cam_time_stamp->time_stamp_gnss = (double)time_stamp / (double)FPGA_CLOCK_HZ;
+    cam_time_stamp->time_stamp_gnss = (double)time_stamp / (double)syncModuleFreqHz;
 
     cam_time_stamp->number = CamTimeStampNumber ++;
 
@@ -680,6 +781,17 @@ void *thread_sync_module(void *arg)
     struct CmdArgs *args = (struct CmdArgs *)arg;
 
     CameraNum = args->camera_num;
+
+    syncModuleModel = args->sync_module;
+
+    if(syncModuleModel == 0)
+    {
+        syncModuleFreqHz = 1000000;
+    }
+    else if(syncModuleModel == 1)
+    {
+        syncModuleFreqHz = 20000000;
+    }
 
     ret = sync_serial_init(args);
     if(ret != 0)

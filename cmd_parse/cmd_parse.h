@@ -60,6 +60,7 @@ struct CmdArgs
   unsigned char camera_index;          //相机索引
 
   unsigned short vehicle_speed_rate;   //车辆速度读取频率
+  unsigned char sync_module;           //同步模块型号 0单片机 1FPGA
 };
 
 

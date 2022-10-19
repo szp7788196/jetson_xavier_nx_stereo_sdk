@@ -8,7 +8,7 @@
 struct CmdArgs cmdArgs;
 
 #define LONG_OPT(a) a
-#define ARGOPT "ha:b:c:d:e:f:g:i:j:k:l:m:n:o:p:q:r:s:t:u:v:w:x:y:z:A:B:C:D:E:F:G:H:I:J:K:L:M:N:O:P:Q:R:S:T"
+#define ARGOPT "ha:b:c:d:e:f:g:i:j:k:l:m:n:o:p:q:r:s:t:u:v:w:x:y:z:A:B:C:D:E:F:G:H:I:J:K:L:M:N:O:P:Q:R:S:T:U"
 
 static struct option opts[] =
 {
@@ -57,7 +57,8 @@ static struct option opts[] =
     { "ts_heap_depth",      required_argument, 0, 'Q'},
     { "camera_num",         required_argument, 0, 'R'},
     { "vehicle_speed_rate", required_argument, 0, 'S'},
-    { "version",            no_argument,       0, 'T'},
+    { "sync_module",        required_argument, 0, 'T'},
+    { "version",            no_argument,       0, 'U'},
     { 0,                    0,                 0,  0 }
 };
 
@@ -114,6 +115,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
     args->ts_heap_depth             = 8;
     args->camera_num                = 2;
     args->vehicle_speed_rate        = 500;
+    args->sync_module               = 0;
 
     help = 0;
 
@@ -749,6 +751,19 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
             break;
 
             case 'T':
+                i = 0;
+                i = strtol(optarg, 0, 10);
+                if(i < 0 || i > 1)
+                {
+                    res = 0;
+                }
+                else
+                {
+                    args->sync_module = i;
+                }
+            break;
+
+            case 'U':
                 ver_h = HARDWARE_VERSION / 100;
                 ver_l = HARDWARE_VERSION % 100;
                 fprintf(stdout, "hardware version: %02d.%02d\n",ver_h,ver_l);
@@ -823,7 +838,8 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
         "| -Q " LONG_OPT("--ts_heap_depth     ") "camera timestamp heap depth,should be less than 256;                |\n"
         "| -R " LONG_OPT("--camera_num        ") "number of cameras;                                                  |\n"
         "| -S " LONG_OPT("--vehicle_speed_rate") "vehicle speed sampling rate from odb2[0~1000];                      |\n"
-        "| -T " LONG_OPT("--version           ") "view hardware and software version number;                          |\n"
+        "| -T " LONG_OPT("--sync_module       ") "synchronization module model,0:MCU;1:FPGA;                          |\n"
+        "| -U " LONG_OPT("--version           ") "view hardware and software version number;                          |\n"
         "|============================================================================================|\n"
         );
 

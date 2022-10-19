@@ -195,7 +195,7 @@ int imuSyncHandler(struct SyncImuData *sync_imu_data)
                  (double)(short)sync_imu_data->ay / (float)32768.0f * (float)sync_imu_data->acc_range * 1.5f * 9.81f,
                  (double)(short)sync_imu_data->az / (float)32768.0f * (float)sync_imu_data->acc_range * 1.5f * 9.81f);
     }
-    else
+    else if(sync_imu_data->imu_module == IMU_ADIS16505)
     {
         snprintf(imu_data,127,"%lld,%f,%f,%f,%f,%f,%f\n",
                  time_stamp,
@@ -205,6 +205,17 @@ int imuSyncHandler(struct SyncImuData *sync_imu_data)
                  (double)sync_imu_data->ax * 3.7384033203125e-08,
                  (double)sync_imu_data->ay * 3.7384033203125e-08,
                  (double)sync_imu_data->az * 3.7384033203125e-08);
+    }
+    else
+    {
+        snprintf(imu_data,127,"%lld,%f,%f,%f,%f,%f,%f\n",
+                 time_stamp,
+                 (double)(short)sync_imu_data->gx / (32768.0f / 250.0f) * 3.1415926f / 180.0f,
+                 (double)(short)sync_imu_data->gy / (32768.0f / 250.0f) * 3.1415926f / 180.0f,
+                 (double)(short)sync_imu_data->gz / (32768.0f / 250.0f) * 3.1415926f / 180.0f,
+                 (double)(short)sync_imu_data->ax / (32768.0f / 8.0f) * 9.81f,
+                 (double)(short)sync_imu_data->ay / (32768.0f / 8.0f) * 9.81f,
+                 (double)(short)sync_imu_data->az / (32768.0f / 8.0f) * 9.81f);
     }
 
     fwrite(imu_data, strlen(imu_data) , 1, fp);
