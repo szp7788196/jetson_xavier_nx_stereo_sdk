@@ -47,7 +47,7 @@ static int syncImageAndCameraTimeStamp(unsigned char index)
         clock_gettime(CLOCK_REALTIME, &start_tm);
         end_tm = ns_to_tm(tm_to_ns(start_tm) + timeout_ms * 1000000);
 
-        if(sem_timedwait(&sem_t_ImageHeap[index], &end_tm) == -1)
+        if(sem_timedwait(&sem_t_ImageHeap[index], &end_tm) == 0)
         {
             res = imageHeapGet(index,&imageBuffer[index]);
             if(res == 0)
