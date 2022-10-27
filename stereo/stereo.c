@@ -144,15 +144,15 @@ int check_rtcm3(const unsigned char *data, unsigned int data_len)
 }
 
 //在str1中查找str2，失败返回0xFF,成功返回str2首个元素在str1中的位置
-unsigned short mystrstr(unsigned char *str1,
-                        unsigned char *str2,
-						unsigned short str1_len,
-						unsigned short str2_len)
+unsigned int mystrstr(unsigned char *str1,
+                      unsigned char *str2,
+					  unsigned int str1_len,
+					  unsigned int str2_len)
 {
 	unsigned short len = str1_len;
 	if(str1_len == 0 || str2_len == 0)
 	{
-		return 0xFFFF;
+		return 0xFFFFFFFF;
 	}
 	else
 	{
@@ -165,7 +165,7 @@ unsigned short mystrstr(unsigned char *str1,
 			}
 			str1 ++;
 		}
-		return 0xFFFF;
+		return 0xFFFFFFFF;
 	}
 }
 
@@ -1909,7 +1909,7 @@ static int pthreadCreate(void *args)
         fprintf(stderr, "%s: create thread_ub482 failed\n",__func__);
     }
 
-    ret = pthread_create(&tid_net,NULL,thread_net,&cmdArgs);
+/*     ret = pthread_create(&tid_net,NULL,thread_net,&cmdArgs);
     if(0 != ret)
     {
         fprintf(stderr, "%s: create thread_net failed\n",__func__);
@@ -2012,7 +2012,7 @@ static int pthreadCreate(void *args)
     if(0 != ret)
     {
         fprintf(stderr, "%s: create thread_imu_mpu9250_handler failed\n",__func__);
-    }
+    } */
 
 	ret = pthread_create(&tid_gnss_ub482_handler,NULL,thread_gnss_ub482_handler,NULL);
     if(0 != ret)
@@ -2035,7 +2035,7 @@ static int pthreadCreate(void *args)
     return ret;
 }
 
-int monocular_sdk_init(int argc, char **argv)
+int stereo_sdk_init(int argc, char **argv)
 {
     int ret = 0;
 
@@ -2053,13 +2053,13 @@ int monocular_sdk_init(int argc, char **argv)
     return ret;
 }
 
-void monocular_sdk_register_handler(ImageHandler *image_handler,
-                                    ImuSyncHandler imu_sync_handler,
-									ImuMpu9250Handler imu_mpu9250_handler,
-									GnssUb482Handler gnss_ub482_handler,
-									EphemerisUb482Handler ephemeris_ub482_handler,
-									RangehUb482Handler rangeh_ub482_handler,
-									Odb2ObjectsHandler odb2_objects_handler)
+void stereo_sdk_register_handler(ImageHandler *image_handler,
+                                 ImuSyncHandler imu_sync_handler,
+								 ImuMpu9250Handler imu_mpu9250_handler,
+								 GnssUb482Handler gnss_ub482_handler,
+								 EphemerisUb482Handler ephemeris_ub482_handler,
+								 RangehUb482Handler rangeh_ub482_handler,
+								 Odb2ObjectsHandler odb2_objects_handler)
 {
 	dataHandler.image_handler        	= image_handler;
 	dataHandler.imu_sync_handler 		= imu_sync_handler;

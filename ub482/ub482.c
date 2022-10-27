@@ -229,7 +229,7 @@ static int ub482_serial_init(struct CmdArgs *args)
                      args->stopbits2,
                      args->protocol2,
                      args->parity2,
-                     args->databits2,1,0);
+                     args->databits2,0,1);
     if(ret)
     {
         fprintf(stderr, "%s: open %s failed\n",__func__,args->serial2);
@@ -1897,274 +1897,369 @@ void sendTimeStampMsgToThreadSync(void)
     }
 }
 
-static int recvAndParseUb482GnssData(void)
+static int handleUb482GnssData(char *inbuf,int inbuf_len)
 {
     int ret = 0;
     unsigned char i = 0;
-    int recv_len = 0;
     struct timeval tv;
     static time_t time_sec = 0;
     unsigned char check_num_buf[8] = {0};
     unsigned int check_num_recv = 0;
     unsigned int check_num_calc = 0;
     char check_buf[10] = {0};
-    static char recv_buf[MAX_UB482_BUF_LEN] = {0};
-    char *gpgga_msg = NULL;
 
-    memset(recv_buf,0,MAX_UB482_BUF_LEN);
-    recv_len = SerialRead(&serialGet, recv_buf, MAX_UB482_BUF_LEN - 1);
-    if(recv_len > 0)
+    get_str1((unsigned char *)inbuf, (unsigned char *)"*", 1, (unsigned char *)"\r\n", 1, (unsigned char *)check_buf);
+
+    if(strlen(check_buf) != 2 && strlen(check_buf) != 8)
     {
-        if((recv_buf[0] != '#' && recv_buf[0] != '$') ||
-            recv_buf[recv_len - 2] != '\r' ||
-            recv_buf[recv_len - 1] != '\n')
+        fprintf(stderr, "%s: check num len error\n",__func__);
+        return -1;
+    }
+
+    if(strlen(check_buf) == 2)
+    {
+        StrToHex((unsigned char *)&check_num_recv, check_buf, 1);
+    }
+    else
+    {
+        StrToHex(check_num_buf, check_buf, 4);
+        check_num_recv = ((((unsigned int)check_num_buf[0]) << 24) & 0xFF000000) +
+                            ((((unsigned int)check_num_buf[1]) << 16) & 0x00FF0000) +
+                            ((((unsigned int)check_num_buf[2]) <<  8) & 0x0000FF00) +
+                            ((((unsigned int)check_num_buf[3]) <<  0) & 0x000000FF);
+    }
+
+    if(strstr(inbuf, "$GPGGA") != NULL)
+    {
+        check_num_calc = CalCheckOr((unsigned char *)&inbuf[1], inbuf_len - 6);
+        if(check_num_recv != check_num_calc)
         {
-            fprintf(stderr, "%s: recv invalid data\n",__func__);
-            fprintf(stderr, "%s: recv : %s\n",__func__,recv_buf);
+            fprintf(stderr, "%s: $GPGGA data check num error,recv is %d but calc is %d\n",
+                    __func__,check_num_recv,check_num_calc);
             return -1;
         }
 
-        get_str1((unsigned char *)recv_buf, (unsigned char *)"*", 1, (unsigned char *)"\r\n", 1, (unsigned char *)check_buf);
-
-        if(strlen(check_buf) != 2 && strlen(check_buf) != 8)
+        if(inbuf_len <= 26)
         {
-            fprintf(stderr, "%s: check num len error\n",__func__);
+            fprintf(stderr, "%s: GPGGA data is null,GPGGA data len is %d,should more than 26\n",__func__,inbuf_len);
             return -1;
         }
 
-        if(strlen(check_buf) == 2)
+        gettimeofday(&tv,NULL);
+        if(tv.tv_sec - time_sec >= 1)
         {
-            StrToHex((unsigned char *)&check_num_recv, check_buf, 1);
-        }
-        else
-        {
-            StrToHex(check_num_buf, check_buf, 4);
-            check_num_recv = ((((unsigned int)check_num_buf[0]) << 24) & 0xFF000000) +
-                             ((((unsigned int)check_num_buf[1]) << 16) & 0x00FF0000) +
-                             ((((unsigned int)check_num_buf[2]) <<  8) & 0x0000FF00) +
-                             ((((unsigned int)check_num_buf[3]) <<  0) & 0x000000FF);
-        }
+            char *gpgga_msg = NULL;
 
-        if(strstr(recv_buf, "$GPGGA") != NULL)
-        {
-            check_num_calc = CalCheckOr((unsigned char *)&recv_buf[1], recv_len - 6);
-            if(check_num_recv != check_num_calc)
+            time_sec = tv.tv_sec;
+
+            gpgga_msg = (char *)malloc(inbuf_len - 2 + 1);
+            if(gpgga_msg != NULL)
             {
-                fprintf(stderr, "%s: $GPGGA data check num error,recv is %d but calc is %d\n",
-                        __func__,check_num_recv,check_num_calc);
-                return -1;
-            }
+                memset(gpgga_msg,0,inbuf_len - 2 + 1);
+                memcpy(gpgga_msg,inbuf,inbuf_len - 2);
 
-            if(recv_len <= 26)
-            {
-                fprintf(stderr, "%s: GPGGA data is null,GPGGA data len is %d,should more than 26\n",__func__,recv_len);
-                return -1;
-            }
-
-            gettimeofday(&tv,NULL);
-            if(tv.tv_sec - time_sec >= 1)
-            {
-                time_sec = tv.tv_sec;
-
-                gpgga_msg = (char *)malloc(recv_len - 2 + 1);
-                if(gpgga_msg != NULL)
+                ret = xQueueSend((key_t)KEY_UB482_GPGGA_MSG,gpgga_msg,MAX_QUEUE_MSG_NUM);
+                if(ret == -1)
                 {
-                    memset(gpgga_msg,0,recv_len - 2 + 1);
-                    memcpy(gpgga_msg,recv_buf,recv_len - 2);
+                    free(gpgga_msg);
+                    gpgga_msg = NULL;
 
-                    ret = xQueueSend((key_t)KEY_UB482_GPGGA_MSG,gpgga_msg,MAX_QUEUE_MSG_NUM);
-                    if(ret == -1)
-                    {
-                        free(gpgga_msg);
-                        gpgga_msg = NULL;
-
-                        fprintf(stderr, "%s: send gpgga queue msg failed\n",__func__);
-                    }
-                }
-            }
-        }
-        else
-        {
-            check_num_calc = CRC32((unsigned char *)&recv_buf[1], recv_len - 12);
-            if(check_num_recv != check_num_calc)
-            {
-                fprintf(stderr, "%s: other data check num error\n",__func__);
-                return -1;
-            }
-            else
-            {
-                if(strstr(recv_buf, "#BESTPOSA") != NULL)
-                {
-                    getBestPositionData(recv_buf,recv_len);
-                }
-                else if(strstr(recv_buf, "#BESTVELA") != NULL)
-                {
-                    getBestVelocityData(recv_buf,recv_len);
-                }
-                else if(strstr(recv_buf, "#HEADINGA") != NULL)
-                {
-                    getBestAttitudeData(recv_buf,recv_len);
-                }
-                else if(strstr(recv_buf, "#TIMEA") != NULL)
-                {
-                    struct Ub482GnssData *ub482_gnss_data = NULL;
-
-                    ub482_gnss_data = (struct Ub482GnssData *)malloc(sizeof(struct Ub482GnssData));
-                    if(ub482_gnss_data != NULL)
-                    {
-                        memcpy(ub482_gnss_data,&ub482GnssData,sizeof(struct Ub482GnssData));
-
-                        ret = xQueueSend((key_t)KEY_GNSS_UB482_HANDLER_MSG,ub482_gnss_data,MAX_QUEUE_MSG_NUM);
-                        if(ret == -1)
-                        {
-                            free(ub482_gnss_data);
-                            ub482_gnss_data = NULL;
-
-                            fprintf(stderr, "%s: send ub482_gnss_data queue msg failed\n",__func__);
-                        }
-                    }
-
-                    sendTimeStampMsgToThreadSync();
-                }
-                else if(strstr(recv_buf, "#GLOEPHEMA") != NULL ||
-                        strstr(recv_buf, "#GPSEPHEMERISA") != NULL ||
-                        strstr(recv_buf, "#BDSEPHEMA") != NULL ||
-                        strstr(recv_buf, "#GALEPHEMA") != NULL)
-                {
-                    struct Ephemeris *ephemeris = NULL;
-
-                    ephemeris = (struct Ephemeris *)malloc(sizeof(struct Ephemeris));
-                    if(ephemeris == NULL)
-                    {
-                        fprintf(stderr, "%s: malloc ephemeris failed\n",__func__);
-                        return -1;
-                    }
-
-                    memset(ephemeris,0,sizeof(struct Ephemeris));
-
-                    if(strstr(recv_buf, "#GLOEPHEMA") != NULL)
-                    {
-                        struct GLOEPHEM *glo = NULL;
-
-                        glo = (struct GLOEPHEM *)malloc(sizeof(struct GLOEPHEM));
-                        if(glo == NULL)
-                        {
-                            fprintf(stderr, "%s: malloc glo failed\n",__func__);
-                            return -1;
-                        }
-
-                        memset(glo,0,sizeof(struct GLOEPHEM));
-
-                        ephemeris->flag = 0x01;
-                        ephemeris->ephem = (void *)glo;
-
-                        getGlonssEphemeris(recv_buf,recv_len,glo);
-                    }
-                    else if(strstr(recv_buf, "#GPSEPHEMERISA") != NULL)
-                    {
-                        struct GPSEPHEM *gps = NULL;
-
-                        gps = (struct GPSEPHEM *)malloc(sizeof(struct GPSEPHEM));
-                        if(gps == NULL)
-                        {
-                            fprintf(stderr, "%s: malloc gps failed\n",__func__);
-                            return -1;
-                        }
-
-                        memset(gps,0,sizeof(struct GPSEPHEM));
-
-                        ephemeris->flag = 0x02;
-                        ephemeris->ephem = (void *)gps;
-
-                        getGpsEphemeris(recv_buf,recv_len,gps);
-                    }
-                    else if(strstr(recv_buf, "#BDSEPHEMA") != NULL)
-                    {
-                        struct BDSEPHEM *bds = NULL;
-
-                        bds = (struct BDSEPHEM *)malloc(sizeof(struct BDSEPHEM));
-                        if(bds == NULL)
-                        {
-                            fprintf(stderr, "%s: malloc bds failed\n",__func__);
-                            return -1;
-                        }
-
-                        memset(bds,0,sizeof(struct BDSEPHEM));
-
-                        ephemeris->flag = 0x04;
-                        ephemeris->ephem = (void *)bds;
-
-                        getBdsEphemeris(recv_buf,recv_len,bds);
-                    }
-                    else if(strstr(recv_buf, "#GALEPHEMA") != NULL)
-                    {
-                        struct GALEPHEM *gal = NULL;
-
-                        gal = (struct GALEPHEM *)malloc(sizeof(struct GALEPHEM));
-                        if(gal == NULL)
-                        {
-                            fprintf(stderr, "%s: malloc gal failed\n",__func__);
-                            return -1;
-                        }
-
-                        memset(gal,0,sizeof(struct GALEPHEM));
-
-                        ephemeris->flag = 0x08;
-                        ephemeris->ephem = (void *)gal;
-
-                        getGalEphemeris(recv_buf,recv_len,gal);
-                    }
-
-                    ret = xQueueSend((key_t)KEY_EPHEMERIS_MSG,ephemeris,MAX_QUEUE_MSG_NUM);
-                    if(ret == -1)
-                    {
-                        free(ephemeris);
-                        ephemeris = NULL;
-
-                        fprintf(stderr, "%s: send ephemeris queue msg failed\n",__func__);
-                    }
-                }
-                else if(strstr(recv_buf, "#RANGEA") != NULL)
-                {
-                    struct Rangeh *rangeh = NULL;
-
-                    rangeh = (struct Rangeh *)malloc(sizeof(struct Rangeh));
-                    if(rangeh != NULL)
-                    {
-                        ret = getRangehData(recv_buf, recv_len,rangeh);
-                        if(ret == 0)
-                        {
-                            ret = xQueueSend((key_t)KEY_RANGEH_MSG,rangeh,MAX_QUEUE_MSG_NUM);
-                            if(ret == -1)
-                            {
-                                for(i = 0; i < rangeh->satellite_num; i ++)
-                                {
-                                    free(rangeh->data[i]);
-                                    rangeh->data[i] = NULL;
-                                }
-
-                                free(rangeh->data);
-                                rangeh->data = NULL;
-
-                                free(rangeh);
-                                rangeh = NULL;
-
-                                fprintf(stderr, "%s: send rangeh queue msg failed\n",__func__);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    fprintf(stderr, "%s: invalid data frame\n",__func__);
-                    return -1;
+                    fprintf(stderr, "%s: send gpgga queue msg failed\n",__func__);
                 }
             }
         }
     }
     else
     {
-        return -1;
+        check_num_calc = CRC32((unsigned char *)&inbuf[1], inbuf_len - 12);
+        if(check_num_recv != check_num_calc)
+        {
+            fprintf(stderr, "%s: other data check num error\n",__func__);
+            return -1;
+        }
+        else
+        {
+            if(strstr(inbuf, "#BESTPOSA") != NULL)
+            {
+                getBestPositionData(inbuf,inbuf_len);
+            }
+            else if(strstr(inbuf, "#BESTVELA") != NULL)
+            {
+                getBestVelocityData(inbuf,inbuf_len);
+            }
+            else if(strstr(inbuf, "#HEADINGA") != NULL)
+            {
+                getBestAttitudeData(inbuf,inbuf_len);
+            }
+            else if(strstr(inbuf, "#TIMEA") != NULL)
+            {
+                struct Ub482GnssData *ub482_gnss_data = NULL;
+
+                ub482_gnss_data = (struct Ub482GnssData *)malloc(sizeof(struct Ub482GnssData));
+                if(ub482_gnss_data != NULL)
+                {
+                    memcpy(ub482_gnss_data,&ub482GnssData,sizeof(struct Ub482GnssData));
+
+                    ret = xQueueSend((key_t)KEY_GNSS_UB482_HANDLER_MSG,ub482_gnss_data,MAX_QUEUE_MSG_NUM);
+                    if(ret == -1)
+                    {
+                        free(ub482_gnss_data);
+                        ub482_gnss_data = NULL;
+
+                        fprintf(stderr, "%s: send ub482_gnss_data queue msg failed\n",__func__);
+                    }
+                }
+
+                sendTimeStampMsgToThreadSync();
+            }
+            else if(strstr(inbuf, "#GLOEPHEMA") != NULL ||
+                    strstr(inbuf, "#GPSEPHEMERISA") != NULL ||
+                    strstr(inbuf, "#BDSEPHEMA") != NULL ||
+                    strstr(inbuf, "#GALEPHEMA") != NULL)
+            {
+                struct Ephemeris *ephemeris = NULL;
+
+                ephemeris = (struct Ephemeris *)malloc(sizeof(struct Ephemeris));
+                if(ephemeris == NULL)
+                {
+                    fprintf(stderr, "%s: malloc ephemeris failed\n",__func__);
+                    return -1;
+                }
+
+                memset(ephemeris,0,sizeof(struct Ephemeris));
+
+                if(strstr(inbuf, "#GLOEPHEMA") != NULL)
+                {
+                    struct GLOEPHEM *glo = NULL;
+
+                    glo = (struct GLOEPHEM *)malloc(sizeof(struct GLOEPHEM));
+                    if(glo == NULL)
+                    {
+                        fprintf(stderr, "%s: malloc glo failed\n",__func__);
+                        return -1;
+                    }
+
+                    memset(glo,0,sizeof(struct GLOEPHEM));
+
+                    ephemeris->flag = 0x01;
+                    ephemeris->ephem = (void *)glo;
+
+                    getGlonssEphemeris(inbuf,inbuf_len,glo);
+                }
+                else if(strstr(inbuf, "#GPSEPHEMERISA") != NULL)
+                {
+                    struct GPSEPHEM *gps = NULL;
+
+                    gps = (struct GPSEPHEM *)malloc(sizeof(struct GPSEPHEM));
+                    if(gps == NULL)
+                    {
+                        fprintf(stderr, "%s: malloc gps failed\n",__func__);
+                        return -1;
+                    }
+
+                    memset(gps,0,sizeof(struct GPSEPHEM));
+
+                    ephemeris->flag = 0x02;
+                    ephemeris->ephem = (void *)gps;
+
+                    getGpsEphemeris(inbuf,inbuf_len,gps);
+                }
+                else if(strstr(inbuf, "#BDSEPHEMA") != NULL)
+                {
+                    struct BDSEPHEM *bds = NULL;
+
+                    bds = (struct BDSEPHEM *)malloc(sizeof(struct BDSEPHEM));
+                    if(bds == NULL)
+                    {
+                        fprintf(stderr, "%s: malloc bds failed\n",__func__);
+                        return -1;
+                    }
+
+                    memset(bds,0,sizeof(struct BDSEPHEM));
+
+                    ephemeris->flag = 0x04;
+                    ephemeris->ephem = (void *)bds;
+
+                    getBdsEphemeris(inbuf,inbuf_len,bds);
+                }
+                else if(strstr(inbuf, "#GALEPHEMA") != NULL)
+                {
+                    struct GALEPHEM *gal = NULL;
+
+                    gal = (struct GALEPHEM *)malloc(sizeof(struct GALEPHEM));
+                    if(gal == NULL)
+                    {
+                        fprintf(stderr, "%s: malloc gal failed\n",__func__);
+                        return -1;
+                    }
+
+                    memset(gal,0,sizeof(struct GALEPHEM));
+
+                    ephemeris->flag = 0x08;
+                    ephemeris->ephem = (void *)gal;
+
+                    getGalEphemeris(inbuf,inbuf_len,gal);
+                }
+
+                ret = xQueueSend((key_t)KEY_EPHEMERIS_MSG,ephemeris,MAX_QUEUE_MSG_NUM);
+                if(ret == -1)
+                {
+                    free(ephemeris);
+                    ephemeris = NULL;
+
+                    fprintf(stderr, "%s: send ephemeris queue msg failed\n",__func__);
+                }
+            }
+            else if(strstr(inbuf, "#RANGEA") != NULL)
+            {
+                struct Rangeh *rangeh = NULL;
+
+                rangeh = (struct Rangeh *)malloc(sizeof(struct Rangeh));
+                if(rangeh != NULL)
+                {
+                    ret = getRangehData(inbuf, inbuf_len,rangeh);
+                    if(ret == 0)
+                    {
+                        ret = xQueueSend((key_t)KEY_RANGEH_MSG,rangeh,MAX_QUEUE_MSG_NUM);
+                        if(ret == -1)
+                        {
+                            for(i = 0; i < rangeh->satellite_num; i ++)
+                            {
+                                free(rangeh->data[i]);
+                                rangeh->data[i] = NULL;
+                            }
+
+                            free(rangeh->data);
+                            rangeh->data = NULL;
+
+                            free(rangeh);
+                            rangeh = NULL;
+
+                            fprintf(stderr, "%s: send rangeh queue msg failed\n",__func__);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                fprintf(stderr, "%s: invalid data frame\n",__func__);
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int recvAndParseUb482GnssData(void)
+{
+    int ret = 0;
+    int recv_len = 0;
+    unsigned int head_pos = 0xFFFFFFFF;
+    unsigned int head_pos1 = 0xFFFFFFFF;
+    unsigned int head_pos2 = 0xFFFFFFFF;
+    unsigned int tail_pos = 0xFFFFFFFF;
+    struct timeval tv;
+    static time_t time_sec = 0;
+    static unsigned int recv_pos = 0;
+    static int frame_len = 0;
+    static unsigned char frame_head1 = '#';
+    static unsigned char frame_head2 = '$';
+    static unsigned char frame_tail[2] = {'\r','\n'};
+    static char recv_buf[MAX_UB482_BUF_LEN] = {0};
+    char *frame_buf = NULL;
+
+    recv_len = SerialRead(&serialGet, &recv_buf[recv_pos], MAX_UB482_BUF_LEN - recv_pos - 1);
+    if(recv_len > 0)
+    {
+        recv_buf[recv_pos + recv_len] = 0;
+
+        gettimeofday(&tv,NULL);
+
+        time_sec = tv.tv_sec;
+
+        recv_pos = recv_pos + recv_len;
+		recv_len = recv_pos;
+
+        ANALYSIS_LOOP:
+        head_pos1 = mystrstr(recv_buf, &frame_head1, recv_len, 1);
+        head_pos2 = mystrstr(recv_buf, &frame_head2, recv_len, 1);
+
+        head_pos =(head_pos1 < head_pos2) ? head_pos1 : head_pos2;
+
+        tail_pos = mystrstr(recv_buf, frame_tail, recv_len, 2);
+
+        if(head_pos != 0xFFFFFFFF && tail_pos != 0xFFFFFFFF)
+        {
+            if(tail_pos > head_pos)
+            {
+                frame_len = tail_pos + 2 - head_pos;
+
+                frame_buf = (char *)malloc(frame_len + 1);
+                if(frame_buf != NULL)
+                {
+                    frame_buf[frame_len] = 0;
+                    memcpy(frame_buf,&recv_buf[head_pos],frame_len);
+
+                    ret = handleUb482GnssData(frame_buf,frame_len);
+                    if(ret == 0)
+                    {
+                        /* fprintf(stderr, "%s: handle gnss data success\n",__func__); */
+                    }
+                    else
+                    {
+                        fprintf(stderr, "%s: handle gnss data failed\n",__func__);
+                    }
+
+                    free(frame_buf);
+                    frame_buf = NULL;
+                }
+
+                if(recv_len > frame_len)
+                {
+                    REFRESH_POS:
+                    recv_len = recv_len - tail_pos - 2;
+                    recv_pos = recv_len;
+
+                    memcpy(recv_buf,&recv_buf[tail_pos + 2],recv_len);
+
+                    goto ANALYSIS_LOOP;
+                }
+                else
+                {
+                    recv_pos = 0;
+                    recv_len = 0;
+                    frame_len = 0;
+                }
+            }
+            else
+            {
+                fprintf(stderr, "%s: head_pos = %d should be less than tail_pos = %d\n",__func__,head_pos,tail_pos);
+                fprintf(stderr, "%s: receive incomplete data; recv_pos = %d; recv_len = %d\n",__func__,recv_pos,recv_len);
+
+                goto REFRESH_POS;
+            }
+        }
+        else
+        {
+            fprintf(stderr, "%s: search head_pos = %d or tail_pos = %d failed\n",__func__,head_pos,tail_pos);
+        }
+    }
+
+    if(recv_pos != 0 || recv_len != 0)
+    {
+        gettimeofday(&tv,NULL);
+
+        if(tv.tv_sec - time_sec >= 2)
+        {
+            fprintf(stderr, "%s: receive incomplete data; recv_pos = %d; recv_len = %d\n",__func__,recv_pos,recv_len);
+
+            recv_pos = 0;
+            recv_len = 0;
+            frame_len = 0;
+
+            return -1;
+        }
     }
 
     return ret;
@@ -2191,8 +2286,6 @@ void *thread_ub482(void *arg)
     {
         recvAndParseUb482GnssData();                        //接收并解析ub482数据
         recvNtripDataMsgAndWriteToUb482();                  //接收ntrip服务器的矫正数据，并发送给UB482
-
-        usleep(1000 * 100);
     }
 
 THREAD_EXIT:

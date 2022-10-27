@@ -39,7 +39,7 @@ int imageHandler(struct ImageUnit *image)
     FILE *fp;
     char time_stamp_buf[64] = {0};
 
-    /* fp = fopen("/home/nvidia/work/calibration/cam0/time_stamp.txt", "a+");
+    /* fp = fopen("/home/szp/work/calibration/cam0/time_stamp.txt", "a+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open time_stamp file\n",__func__);
@@ -48,7 +48,7 @@ int imageHandler(struct ImageUnit *image)
 
     time_stamp = (long long int)(image->time_stamp->time_stamp_local * 1000000000.0);
 
-    snprintf(image_name,63,"/home/nvidia/work/calibration/cam0/data/%lld.jpg",time_stamp);
+    snprintf(image_name,63,"/home/szp/work/calibration/cam0/data/%lld.jpg",time_stamp);
 
     snprintf(time_stamp_buf,63,"%lld\n",time_stamp);
 
@@ -57,7 +57,7 @@ int imageHandler(struct ImageUnit *image)
     fclose(fp);
 
     memset(time_stamp_buf,0,64);
-    fp = fopen("/home/nvidia/work/calibration/cam0/data.csv", "a+");
+    fp = fopen("/home/szp/work/calibration/cam0/data.csv", "a+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open time_stamp file\n",__func__);
@@ -108,7 +108,7 @@ int imageHandler1(struct ImageUnit *image)
     FILE *fp;
     char time_stamp_buf[64] = {0};
 
-    /* fp = fopen("/home/nvidia/work/calibration/cam0/time_stamp.txt", "a+");
+    /* fp = fopen("/home/szp/work/calibration/cam0/time_stamp.txt", "a+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open time_stamp file\n",__func__);
@@ -117,7 +117,7 @@ int imageHandler1(struct ImageUnit *image)
 
     time_stamp = (long long int)(image->time_stamp->time_stamp_local * 1000000000.0);
 
-    snprintf(image_name,63,"/home/nvidia/work/calibration/cam0/data/%lld.jpg",time_stamp);
+    snprintf(image_name,63,"/home/szp/work/calibration/cam0/data/%lld.jpg",time_stamp);
 
     snprintf(time_stamp_buf,63,"%lld\n",time_stamp);
 
@@ -126,7 +126,7 @@ int imageHandler1(struct ImageUnit *image)
     fclose(fp);
 
     memset(time_stamp_buf,0,64);
-    fp = fopen("/home/nvidia/work/calibration/cam0/data.csv", "a+");
+    fp = fopen("/home/szp/work/calibration/cam0/data.csv", "a+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open time_stamp file\n",__func__);
@@ -175,7 +175,7 @@ int imuSyncHandler(struct SyncImuData *sync_imu_data)
     char imu_data[128] = {0};
     long long int time_stamp = 0;
 
-    fp = fopen("/home/nvidia/work/calibration/imu0/imu0.csv", "a+");
+    fp = fopen("/home/szp/work/calibration/imu0/imu0.csv", "a+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open imu_data file\n",__func__);
@@ -238,27 +238,27 @@ int main(int argc, char **argv)
     FILE *fp;
     char temp_data[150] = {0};
 
-    delete_file("/home/nvidia/work/calibration");
+    delete_file("/home/szp/work/calibration");
 
-    ret = mkdir("/home/nvidia/work/calibration/imu0",0755);
+    ret = mkdir("/home/szp/work/calibration/imu0",0755);
     if(ret != 0)
     {
-        fprintf(stderr, "%s: mkdir /home/nvidia/work/calibration/imu0 failed\n",__func__);
+        fprintf(stderr, "%s: mkdir /home/szp/work/calibration/imu0 failed\n",__func__);
     }
 
-    ret = mkdir("/home/nvidia/work/calibration/cam0",0755);
+    ret = mkdir("/home/szp/work/calibration/cam0",0755);
     if(ret != 0)
     {
-        fprintf(stderr, "%s: mkdir /home/nvidia/work/calibration/cam0 failed\n",__func__);
+        fprintf(stderr, "%s: mkdir /home/szp/work/calibration/cam0 failed\n",__func__);
     }
 
-    ret = mkdir("/home/nvidia/work/calibration/cam0/data",0755);
+    ret = mkdir("/home/szp/work/calibration/cam0/data",0755);
     if(ret != 0)
     {
-        fprintf(stderr, "%s: mkdir /home/nvidia/work/calibration/cam0/data failed\n",__func__);
+        fprintf(stderr, "%s: mkdir /home/szp/work/calibration/cam0/data failed\n",__func__);
     }
 
-    fp = fopen("/home/nvidia/work/calibration/imu0/imu0.csv", "w+");
+    fp = fopen("/home/szp/work/calibration/imu0/imu0.csv", "w+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open imu_data file\n",__func__);
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
     fclose(fp);
 
     memset(temp_data,0,150);
-    fp = fopen("/home/nvidia/work/calibration/cam0/data.csv", "w+");
+    fp = fopen("/home/szp/work/calibration/cam0/data.csv", "w+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open time_stamp file\n",__func__);
@@ -279,7 +279,7 @@ int main(int argc, char **argv)
     fwrite(temp_data, strlen(temp_data) , 1, fp);
     fclose(fp);
 
-    fp = fopen("/home/nvidia/work/calibration/cam0/time_stamp.txt", "w+");
+    fp = fopen("/home/szp/work/calibration/cam0/time_stamp.txt", "w+");
     if(fp == NULL)
     {
         fprintf(stderr, "%s: Could not open time_stamp file\n",__func__);
@@ -287,13 +287,13 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
-    monocular_sdk_init(argc, argv);
+    stereo_sdk_init(argc, argv);
 
     image_handler[0] = imageHandler;
     image_handler[1] = imageHandler1;
     image_handler[2] = NULL;
 
-    monocular_sdk_register_handler(image_handler,imuSyncHandler,NULL,NULL,NULL,NULL,odb2ObjectsHandler);
+    stereo_sdk_register_handler(image_handler,imuSyncHandler,NULL,NULL,NULL,NULL,odb2ObjectsHandler);
 
     // cvNamedWindow("Capture",CV_WINDOW_AUTOSIZE);
 

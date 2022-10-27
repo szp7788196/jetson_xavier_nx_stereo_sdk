@@ -224,7 +224,15 @@ int SerialInit(struct Serial *sn,
     tcflush(sn->Stream, TCIOFLUSH);
     tcsetattr(sn->Stream, TCSANOW, &newtermios);
     tcflush(sn->Stream, TCIOFLUSH);
-    fcntl(sn->Stream, F_SETFL, O_NONBLOCK);
+
+    if(block == 0)
+    {
+        fcntl(sn->Stream, F_SETFL, O_NONBLOCK);
+    }
+    else
+    {
+        fcntl(sn->Stream, F_SETFL, 0);
+    }
 
     return 0;
 }

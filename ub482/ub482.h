@@ -2,7 +2,7 @@
 #define __UB482_H
 
 
-#define MAX_UB482_BUF_LEN		10240
+#define MAX_UB482_BUF_LEN		204800
 #define PI                      3.141592653589793f
 
 enum PositionVelocityType

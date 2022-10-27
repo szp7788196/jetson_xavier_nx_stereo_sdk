@@ -325,10 +325,10 @@ unsigned int CRC32(unsigned char *buf, unsigned int size);
 unsigned short CalCheckSum(unsigned char *buf, unsigned short len);
 unsigned char CalCheckOr(unsigned char *buf, unsigned short len);
 int check_rtcm3(const unsigned char *data, unsigned int data_len);
-unsigned short mystrstr(unsigned char *str1,
-                        unsigned char *str2,
-						unsigned short str1_len,
-						unsigned short str2_len);
+unsigned int mystrstr(unsigned char *str1,
+                      unsigned char *str2,
+					  unsigned int str1_len,
+					  unsigned int str2_len);
 unsigned short find_str(unsigned char *s_str,
                         unsigned char *p_str,
 						unsigned short count,
@@ -396,8 +396,8 @@ int imageBufCompressToPng(char *file_name,
 						   struct ImageBuffer *image,
 						   unsigned char format); */
 int imageBufCompressToBmp(char *file_name,struct ImageBuffer *image,unsigned char format);
-int monocular_sdk_init(int argc, char **argv);
-void monocular_sdk_register_handler(ImageHandler *image_handler,
+int stereo_sdk_init(int argc, char **argv);
+void stereo_sdk_register_handler(ImageHandler *image_handler,
                                     ImuSyncHandler imu_sync_handler,
 									ImuMpu9250Handler imu_mpu9250_handler,
 									GnssUb482Handler gnss_ub482_handler,

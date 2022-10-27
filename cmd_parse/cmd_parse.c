@@ -83,7 +83,7 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
     args->parity1                   = SPAPARITY_NONE;
     args->protocol1                 = SPAPROTOCOL_NONE;
     args->serial2                   = "/dev/ttyTHS0";
-    args->baudrate2                 = SPABAUD_230400;
+    args->baudrate2                 = SPABAUD_460800;
     args->databits2                 = SPADATABITS_8;
     args->stopbits2                 = SPASTOPBITS_1;
     args->parity2                   = SPAPARITY_NONE;
