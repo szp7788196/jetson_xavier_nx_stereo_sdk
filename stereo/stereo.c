@@ -383,7 +383,7 @@ int AT_SendCmd(struct Serial *sn,
 
 	memset(result_buf,0,64);
 
-    fprintf(stdout,"%s: cmd:%s\n",__func__,cmd);
+    // fprintf(stdout,"%s: cmd:%s\n",__func__,cmd);
 
     SerialWrite(sn, cmd, strlen((const char *)cmd));
 
@@ -403,7 +403,7 @@ int AT_SendCmd(struct Serial *sn,
 
 		if(flag_ok > 0)
 		{
-			fprintf(stdout,"%s: cmd_rsp:%s\n",__func__,result_buf);
+			// fprintf(stdout,"%s: cmd_rsp:%s\n",__func__,result_buf);
 
 			if(rsp_buf != NULL)
 			{
@@ -1107,7 +1107,11 @@ int imageHeapPut(unsigned char index,struct ImageBuffer *data)
 
 	pthread_mutex_lock(&mutexImageHeap[index]);
 
-	memcpy(imageHeap[index].heap[imageHeap[index].put_ptr],data,sizeof(struct ImageBuffer));
+	imageHeap[index].heap[imageHeap[index].put_ptr]->size = data->size;
+	imageHeap[index].heap[imageHeap[index].put_ptr]->width = data->width;
+	imageHeap[index].heap[imageHeap[index].put_ptr]->height = data->height;
+	imageHeap[index].heap[imageHeap[index].put_ptr]->number = data->number;
+	memcpy(imageHeap[index].heap[imageHeap[index].put_ptr]->image,data->image,data->size);
 
 	imageHeap[index].put_ptr = (imageHeap[index].put_ptr + 1) % imageHeap[index].depth;
 
@@ -1909,7 +1913,7 @@ static int pthreadCreate(void *args)
         fprintf(stderr, "%s: create thread_ub482 failed\n",__func__);
     }
 
-/*     ret = pthread_create(&tid_net,NULL,thread_net,&cmdArgs);
+    ret = pthread_create(&tid_net,NULL,thread_net,&cmdArgs);
     if(0 != ret)
     {
         fprintf(stderr, "%s: create thread_net failed\n",__func__);
@@ -2012,7 +2016,7 @@ static int pthreadCreate(void *args)
     if(0 != ret)
     {
         fprintf(stderr, "%s: create thread_imu_mpu9250_handler failed\n",__func__);
-    } */
+    }
 
 	ret = pthread_create(&tid_gnss_ub482_handler,NULL,thread_gnss_ub482_handler,NULL);
     if(0 != ret)

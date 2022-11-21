@@ -671,6 +671,7 @@ static int syncParseCamTimeStamp(unsigned char *inbuf,struct SyncCamTimeStamp *c
 
     // fprintf(stderr, "%s: time_stamp ======================================= %lf\n",__func__,cam_time_stamp->time_stamp_local);
     // fprintf(stdout, "%s: cam_time_stamp->number ======================== %d\n",__func__,cam_time_stamp->number);
+    // fprintf(stdout, "%s: cam_time_stamp->counter ======================== %d\n",__func__,cam_time_stamp->counter);
 
     return ret;
 }
@@ -778,6 +779,7 @@ void *thread_sync_module(void *arg)
 {
     int ret = 0;
     unsigned char i = 0;
+    unsigned char j = 0;
     struct CmdArgs *args = (struct CmdArgs *)arg;
 
     CameraNum = args->camera_num;
@@ -793,12 +795,6 @@ void *thread_sync_module(void *arg)
         syncModuleFreqHz = 20000000;
     }
 
-    ret = sync_serial_init(args);
-    if(ret != 0)
-    {
-        goto THREAD_EXIT;
-    }
-
     for(i = 0; i < CameraNum; i ++)
     {
         allocateSyncCamTimeStampHeap(i,args->ts_heap_depth);
@@ -808,6 +804,13 @@ void *thread_sync_module(void *arg)
     if(0 != ret)
     {
         fprintf(stderr, "%s: create thread_serial_recv failed\n",__func__);
+    }
+
+    // RE_INIT:
+    ret = sync_serial_init(args);
+    if(ret != 0)
+    {
+        goto THREAD_EXIT;
     }
 
     while(1)

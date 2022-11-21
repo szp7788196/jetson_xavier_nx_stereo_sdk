@@ -148,8 +148,8 @@ int imageHandler1(struct ImageUnit *image)
 	// 					 image->image->height);
     img.data = (unsigned char *)image->image->image;
     // imwrite(image_name, img);
-    imshow("Capture1", img);
-	waitKey(1);
+    // imshow("Capture1", img);
+	// waitKey(1);
 /*
     gettimeofday(&tv[1],NULL);
 

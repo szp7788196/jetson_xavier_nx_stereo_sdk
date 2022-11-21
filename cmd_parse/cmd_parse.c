@@ -113,9 +113,9 @@ int cmdParse(int argc, char **argv, struct CmdArgs *args)
     args->camera_module             = 2;
     args->image_heap_depth          = 8;
     args->ts_heap_depth             = 8;
-    args->camera_num                = 2;
+    args->camera_num                = 1;
     args->vehicle_speed_rate        = 500;
-    args->sync_module               = 0;
+    args->sync_module               = 1;
 
     help = 0;
 

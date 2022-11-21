@@ -100,7 +100,7 @@ int canSend(int fd,unsigned int id,unsigned char *buf,unsigned short len)
 
         if(ret < 0)
         {
-            fprintf(stderr, "%s: can write failed:[%d]-%s\n",__func__,errno,strerror(errno));
+            //fprintf(stderr, "%s: can write failed:[%d]-%s\n",__func__,errno,strerror(errno));
         }
         else if(ret != sizeof(frame))
         {
@@ -142,7 +142,7 @@ unsigned short canFrameReceive(int fd,struct can_frame *frame)
     }
 	else if(ret==0)
     {
-        fprintf(stderr, "%s: can poll timeout: %d\n",__func__,ret);
+        // fprintf(stderr, "%s: can poll timeout: %d\n",__func__,ret);
     }
 	else
 	{

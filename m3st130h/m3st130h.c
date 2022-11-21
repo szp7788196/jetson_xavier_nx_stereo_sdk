@@ -2919,6 +2919,11 @@ static int captureImage(struct M3st130hConfig config,unsigned int *image_num)
     struct ImageBuffer image_buf;
     double exposure_time = 0.0f;
 
+    dvp_status = dvpGetExposure(config.camera_handle, &exposure_time);
+    if(dvp_status == DVP_STATUS_OK) {
+      fprintf(stderr,"%s: camera[%d] exposure time = %.3f\n",__func__,config.camera_index, exposure_time);
+    }
+
     dvp_status = dvpGetFrame(config.camera_handle, &frame, &image, 3000);
     if(dvp_status == DVP_STATUS_OK)
     {
@@ -2952,7 +2957,6 @@ static int captureImage(struct M3st130hConfig config,unsigned int *image_num)
 
     return 0;
 }
-
 
 void *thread_m3st130h(void *arg)
 {
@@ -3087,7 +3091,7 @@ void *thread_m3st130h(void *arg)
         if(ret != -1)
         {
             image_num = 0;
-//            camera_state = DISCONNECT_CAMERA;
+            camera_state = DISCONNECT_CAMERA;
         }
 
         ret = recvSync1HzSuccessMsg();
